@@ -86,33 +86,33 @@ const generateWithAI=async(apiKey,subject,chapterName,brief,reference,chapterId)
 };
 
 // ── PROMPTS ───────────────────────────────────────────────────────
-const P1_SYSTEM=`You are a senior CA Inter exam paper setter for ICAI Advanced Accounting (Paper 1).
-You create exam content that exactly matches ICAI's January 2026 / May 2025 standard.
+const P1_SYSTEM=`You are a senior CA Inter exam content creator for ICAI.
+You have deep knowledge of all Accounting Standards, Companies Act 2013,
+FEMA, LLP Act, and all CA Inter subjects up to May 2025.
+You create content matching ICAI January 2026 exam standard.
+When given a PDF of ICAI study material:
+1. Extract danger zones from actual chapter content
+2. Build multi-level formula/decision trees — never flatten to binary when more branches exist in the actual rule
+3. Extract flashcard definitions verbatim from the PDF
+4. Create practice problems at ICAI exam difficulty
+5. Identify amendments using your own knowledge as primary source, PDF as secondary reference only
+6. Generate case scenario MCQs where all options are computed values
+Return ONLY valid JSON. No markdown. No explanation.
+Keys: dangerZones, formulaGuide, flashcards, practiceProblems, amendments, caseMCQs`;
 
-ICAI P1 MCQ STYLE — follow these rules exactly:
-1. Always start with a CASE SCENARIO: name a company (e.g. "RNK Ltd."), give a financial year (31st March 2025), and describe 2-3 specific accounting situations with exact rupee amounts in lakhs/crores/units.
-2. Generate 4-5 MCQs that derive from this scenario. Each MCQ asks for a specific computed amount or accounting treatment.
-3. ALL FOUR OPTIONS must be plausible computed values based on the scenario data. Wrong options must represent real mistakes students make (wrong formula, wrong rate, excluded item, wrong AS provision).
-4. Explanation must cite the exact AS number and briefly explain why the correct answer is right AND why the most common wrong answer fails.
-5. Also add 2-3 standalone MCQs (type: Concept or Amendment) without a scenario — testing precise AS distinctions.
-6. Tricky points must name specific calculation errors, not generic advice.
-7. Only include amendments that are genuinely relevant to this chapter topic.
-
-Return ONLY valid JSON — no markdown fences, no explanation text before or after.`;
-
-const P2_SYSTEM=`You are a senior CA Inter exam paper setter for ICAI Corporate & Other Laws (Paper 2).
-You create exam content that exactly matches ICAI's January 2026 / May 2025 standard.
-
-ICAI P2 MCQ STYLE — follow these rules exactly:
-1. Create a detailed CASE SCENARIO: name companies (e.g. "Horizon Pvt. Ltd."), describe real legal complications with specific facts, dates, section violations, and legal consequences.
-2. Generate 3-4 MCQs from the scenario testing precise section application. Each option must be a complete legal statement — no vague answers.
-3. Options should test exact thresholds, timelines, and authority (e.g. "void against liquidator and creditors" vs "void ab initio" are different).
-4. CASES: Create 5-7 Yes/No scenarios. Each scenario is a specific fact situation; question asks "Is this valid?" or "Is X liable?". Include the exact section in reasoning.
-5. DECISION TREES: Create 4-6 trees showing how to apply the law. Logic field is the condition to check; outcome shows "Yes → result; No → result".
-6. Tricky points must cite exact section numbers and describe the precise conceptual confusion.
-7. Amendments must reference specific notifications, rules, or act amendments.
-
-Return ONLY valid JSON — no markdown fences, no explanation text before or after.`;
+const P2_SYSTEM=`You are a senior CA Inter exam content creator for ICAI.
+You have deep knowledge of all Accounting Standards, Companies Act 2013,
+FEMA, LLP Act, and all CA Inter subjects up to May 2025.
+You create content matching ICAI January 2026 exam standard.
+When given a PDF of ICAI study material:
+1. Extract danger zones from actual chapter content
+2. Build multi-level formula/decision trees — never flatten to binary when more branches exist in the actual rule
+3. Extract flashcard definitions verbatim from the PDF
+4. Create practice problems at ICAI exam difficulty
+5. Identify amendments using your own knowledge as primary source, PDF as secondary reference only
+6. Generate case scenario MCQs where all options are computed values
+Return ONLY valid JSON. No markdown. No explanation.
+Keys: dangerZones, formulaGuide, flashcards, practiceProblems, amendments, caseMCQs`;
 
 const buildUserPrompt=(subject,chapterName,brief,reference,schema)=>`
 Create complete ICAI-standard chapter content for:
@@ -141,7 +141,7 @@ const P1_SCHEMA=(id)=>({
     {id:`${id}.3`,point:"[Third trap]",mistake:"[Mistake]",why:"[Reason]",priority:"Medium"},
   ],
   amendments:[
-    {id:`${id}.A1`,topic:"[Amendment name]",what:"[What changed with rule/notification reference]",relevance:"High",priority:"High"},
+    {id:`${id}.A1`,topic:"[Amendment name]",what:"[What changed — cite MCA notification / ICAI circular / AS revision]",oldPosition:"[What the provision said before the amendment]",newPosition:"[What the provision says now]",effectiveFrom:"[e.g. May 2026 attempt]",pdfStatus:"not mentioned",priority:"High"},
   ]
 });
 
@@ -157,15 +157,15 @@ const P2_SCHEMA=(id)=>({
     {id:`${id}.2`,point:"[Another precision trap]",mistake:"[Mistake]",why:"[Reason]",priority:"High"},
   ],
   amendments:[
-    {id:`${id}.A1`,topic:"[Amendment]",what:"[What changed]",relevance:"High",priority:"High"},
+    {id:`${id}.A1`,topic:"[Amendment]",what:"[What changed — cite MCA notification / ICAI circular]",oldPosition:"[What the provision said before]",newPosition:"[What it says now]",effectiveFrom:"[e.g. May 2026 attempt]",pdfStatus:"not mentioned",priority:"High"},
   ],
   cases:[
     {id:`${id}.C1`,scenario:"[Specific fact situation with named company, dates, amounts]",question:"Is this valid/legal?",answer:"Yes",reasoning:"[Under Section XX of Companies Act 2013, because...]",trap:"[Type of trap]",diff:3},
     {id:`${id}.C2`,scenario:"[Another scenario]",question:"Is the director liable?",answer:"No",reasoning:"[Reasoning with section]",trap:"[Trap type]",diff:4},
   ],
   trees:[
-    {id:`${id}.DT1`,topic:"[Legal decision topic]",logic:"[Condition to check — e.g. 'Filed within 30 days?']",outcome:"Yes → Valid; No → Void against liquidator"},
-    {id:`${id}.DT2`,topic:"[Another decision]",logic:"[Condition]",outcome:"Yes → outcome; No → outcome"},
+    {id:`${id}.DT1`,topic:"[Legal decision topic — e.g. 'Charge Registration Validity']",nodes:[{id:"n1",label:"[Opening condition? e.g. 'Filed within 30 days?']",branches:[{label:"Yes",target:"n2"},{label:"No",target:"outcomeA"}]},{id:"n2",label:"[Next condition? e.g. 'Is charge in favour of bank?']",branches:[{label:"Yes",target:"outcomeB"},{label:"No",target:"outcomeC"}]}],outcomes:[{id:"outcomeA",label:"[Outcome if filed late]",reference:"Section XX"},{id:"outcomeB",label:"[Outcome if both conditions met]",reference:"Section YY"},{id:"outcomeC",label:"[Outcome if second condition fails]",reference:"Section ZZ"}]},
+    {id:`${id}.DT2`,topic:"[Another multi-branch decision]",nodes:[{id:"n1",label:"[First condition?]",branches:[{label:"Branch A",target:"outcomeA"},{label:"Branch B",target:"n2"},{label:"Branch C",target:"outcomeC"}]},{id:"n2",label:"[Sub-condition?]",branches:[{label:"Yes",target:"outcomeB"},{label:"No",target:"outcomeD"}]}],outcomes:[{id:"outcomeA",label:"[Treatment A]",reference:""},{id:"outcomeB",label:"[Treatment B]",reference:""},{id:"outcomeC",label:"[Treatment C]",reference:""},{id:"outcomeD",label:"[Treatment D]",reference:""}]},
   ]
 });
 
@@ -293,22 +293,55 @@ const TrickyCard=({item,onChange,onDelete})=>(
 );
 
 // ── AMENDMENT EDITOR ──────────────────────────────────────────────
-const AmendCard=({item,onChange,onDelete})=>(
-  <div style={{background:C.s2,border:`1px solid ${C.gr}20`,borderRadius:10,padding:14,marginBottom:8}}>
-    <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+const AmendCard=({item,onChange,onDelete})=>{
+  const sc=item.pdfStatus==="confirmed"?C.gr:item.pdfStatus==="risk"?C.rd:C.t3;
+  const scLabel=item.pdfStatus==="confirmed"?"✓ Confirmed in PDF":item.pdfStatus==="risk"?"⚠ Risk — PDF may be outdated":"— Not mentioned in PDF";
+  return(
+  <div style={{background:C.s2,border:`1px solid ${sc}25`,borderRadius:10,padding:14,marginBottom:8}}>
+    <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
       <Badge text="AMENDMENT" color={C.gr}/>
+      <select value={item.pdfStatus||"not mentioned"} onChange={e=>onChange({...item,pdfStatus:e.target.value})}
+        style={{background:C.s3,border:`1px solid ${sc}50`,color:sc,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+        <option value="confirmed">✓ Confirmed in PDF</option>
+        <option value="risk">⚠ Risk — PDF outdated</option>
+        <option value="not mentioned">— Not mentioned</option>
+      </select>
       <select value={item.priority||"High"} onChange={e=>onChange({...item,priority:e.target.value})}
-        style={{marginLeft:"auto",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+        style={{background:C.s3,border:`1px solid ${C.b2}`,color:item.priority==="Very High"?C.rd:item.priority==="High"?C.am:C.t3,padding:"3px 8px",borderRadius:5,fontSize:11}}>
         {["Very High","High","Medium"].map(p=><option key={p}>{p}</option>)}
       </select>
-      <button onClick={onDelete} style={{color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px"}}>×</button>
+      <button onClick={onDelete} style={{marginLeft:"auto",color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px",background:"none",border:"none"}}>×</button>
     </div>
-    <input value={item.topic||""} onChange={e=>onChange({...item,topic:e.target.value})} placeholder="Amendment name/topic..."
-      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t1,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
-    <textarea value={item.what||""} onChange={e=>onChange({...item,what:e.target.value})} placeholder="What specifically changed..." rows={2}
-      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"8px 10px",borderRadius:6,fontSize:12,resize:"vertical"}}/>
+    <div style={{marginBottom:8}}>
+      <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:5}}>TOPIC</div>
+      <input value={item.topic||""} onChange={e=>onChange({...item,topic:e.target.value})} placeholder="Amendment name/topic..."
+        style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t1,padding:"8px 10px",borderRadius:6,fontSize:12}}/>
+    </div>
+    <div style={{marginBottom:8}}>
+      <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:5}}>WHAT CHANGED</div>
+      <textarea value={item.what||""} onChange={e=>onChange({...item,what:e.target.value})} placeholder="What changed — cite exact MCA notification / ICAI circular / AS revision reference..." rows={2}
+        style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"8px 10px",borderRadius:6,fontSize:12,resize:"vertical"}}/>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+      <div>
+        <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:5}}>OLD POSITION</div>
+        <textarea value={item.oldPosition||""} onChange={e=>onChange({...item,oldPosition:e.target.value})} placeholder="What it used to say..." rows={3}
+          style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t3,padding:"8px 10px",borderRadius:6,fontSize:12,resize:"vertical",textDecoration:item.oldPosition?"line-through":"none",opacity:.75}}/>
+        {item.oldPosition&&<div style={{fontSize:10,color:C.t3,marginTop:3,textDecoration:"line-through",fontStyle:"italic",paddingLeft:2}}>{item.oldPosition.slice(0,60)}{item.oldPosition.length>60?"…":""}</div>}
+      </div>
+      <div>
+        <div style={{fontSize:10,color:C.gr,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:5}}>NEW POSITION</div>
+        <textarea value={item.newPosition||""} onChange={e=>onChange({...item,newPosition:e.target.value})} placeholder="What it says now..." rows={3}
+          style={{width:"100%",background:C.s3,border:`1px solid ${C.gr}30`,color:C.gr,padding:"8px 10px",borderRadius:6,fontSize:12,resize:"vertical"}}/>
+      </div>
+    </div>
+    <div style={{marginBottom:4}}>
+      <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:5}}>EFFECTIVE FROM</div>
+      <input value={item.effectiveFrom||""} onChange={e=>onChange({...item,effectiveFrom:e.target.value})} placeholder="e.g. May 2026 attempt / January 2026 attempt"
+        style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.am,padding:"8px 10px",borderRadius:6,fontSize:12}}/>
+    </div>
   </div>
-);
+);};
 
 // ── CASE EDITOR ───────────────────────────────────────────────────
 const CaseCard=({item,onChange,onDelete})=>(
@@ -336,21 +369,108 @@ const CaseCard=({item,onChange,onDelete})=>(
   </div>
 );
 
-// ── TREE EDITOR ───────────────────────────────────────────────────
-const TreeCard=({item,onChange,onDelete})=>(
-  <div style={{background:C.s2,border:`1px solid ${C.bl}20`,borderRadius:10,padding:14,marginBottom:8}}>
-    <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
-      <Badge text="DECISION TREE" color={C.bl}/>
-      <button onClick={onDelete} style={{marginLeft:"auto",color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px"}}>×</button>
+// ── FORMULA TREE EDITOR (multi-node, interactive traversal) ───────
+const TreeCard=({item,onChange,onDelete})=>{
+  const [mode,setMode]=useState("edit"); // "edit"|"preview"
+  const [jsonText,setJsonText]=useState(()=>JSON.stringify(item,null,2));
+  const [jsonErr,setJsonErr]=useState("");
+  const [curId,setCurId]=useState(()=>item.nodes?.[0]?.id||null);
+  const [hist,setHist]=useState([]);
+
+  const saveJson=()=>{
+    try{
+      const p=JSON.parse(jsonText);
+      onChange(p);
+      setCurId(p.nodes?.[0]?.id||null);
+      setHist([]);
+      setJsonErr("");
+    }catch(e){setJsonErr(e.message);}
+  };
+  const goTo=(targetId)=>{setHist(h=>[...h,curId]);setCurId(targetId);};
+  const goBack=()=>{const p=hist[hist.length-1];setHist(h=>h.slice(0,-1));setCurId(p);};
+  const reset=()=>{setCurId(item.nodes?.[0]?.id||null);setHist([]);};
+
+  const curNode=item.nodes?.find(n=>n.id===curId);
+  const curOutcome=!curNode?item.outcomes?.find(o=>o.id===curId):null;
+  const isOutcome=!!curOutcome;
+
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.bl}20`,borderRadius:10,padding:14,marginBottom:8}}>
+      <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+        <Badge text="DECISION TREE" color={C.bl}/>
+        <span style={{fontSize:13,color:C.t1,fontWeight:500,flex:1}}>{item.topic||"Untitled Tree"}</span>
+        <button onClick={()=>{if(mode==="edit"){saveJson();setMode("preview");}else setMode("edit");}}
+          style={{padding:"4px 10px",borderRadius:5,border:`1px solid ${mode==="preview"?C.bl:C.b2}`,background:mode==="preview"?`${C.bl}18`:"transparent",color:mode==="preview"?C.bl:C.t3,cursor:"pointer",fontSize:11}}>
+          {mode==="edit"?"▶ Preview":"✎ Edit JSON"}
+        </button>
+        <button onClick={onDelete} style={{color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px",background:"none",border:"none"}}>×</button>
+      </div>
+
+      {mode==="edit"&&(
+        <div>
+          <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:6}}>TREE JSON — nodes[] + outcomes[]</div>
+          <textarea value={jsonText} onChange={e=>{setJsonText(e.target.value);setJsonErr("");}} rows={14}
+            style={{width:"100%",background:C.s3,border:`1px solid ${jsonErr?C.rd:C.b2}`,color:C.t1,padding:10,borderRadius:6,fontSize:11,fontFamily:"'Space Mono',mono",lineHeight:1.6,resize:"vertical"}}/>
+          {jsonErr&&<div style={{fontSize:11,color:C.rd,marginTop:4,marginBottom:6}}>{jsonErr}</div>}
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            <button onClick={saveJson}
+              style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${C.am}`,background:`${C.am}18`,color:C.am,cursor:"pointer",fontSize:12,fontWeight:700}}>
+              Save JSON
+            </button>
+            <button onClick={()=>{saveJson();setMode("preview");}}
+              style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${C.bl}`,background:`${C.bl}18`,color:C.bl,cursor:"pointer",fontSize:12,fontWeight:700}}>
+              Save &amp; Preview →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode==="preview"&&(
+        <div>
+          <div style={{minHeight:120,background:C.s3,borderRadius:8,padding:16,marginBottom:10}}>
+            {curNode&&(
+              <div>
+                <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",marginBottom:8}}>
+                  STEP {hist.length+1} — NODE {curNode.id}
+                </div>
+                <div style={{fontSize:14,color:C.bl,fontWeight:600,marginBottom:14,lineHeight:1.5}}>{curNode.label}</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {(curNode.branches||[]).map((branch,bi)=>(
+                    <button key={bi} onClick={()=>goTo(branch.target)}
+                      style={{padding:"10px 14px",borderRadius:7,border:`1px solid ${C.b3}`,background:C.b1,color:C.t1,cursor:"pointer",fontSize:13,textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"border-color .15s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=C.bl}
+                      onMouseLeave={e=>e.currentTarget.style.borderColor=C.b3}>
+                      <span>{branch.label}</span>
+                      <span style={{color:C.t3,fontSize:12}}>→</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {isOutcome&&(
+              <div>
+                <div style={{fontSize:10,color:C.gr,letterSpacing:2,fontFamily:"'Space Mono',mono",marginBottom:8}}>OUTCOME</div>
+                <div style={{fontSize:14,color:C.gr,fontWeight:600,marginBottom:6,lineHeight:1.5}}>{curOutcome.label}</div>
+                {curOutcome.reference&&<div style={{fontSize:11,color:C.t3,fontFamily:"'Space Mono',mono"}}>{curOutcome.reference}</div>}
+              </div>
+            )}
+            {!curNode&&!isOutcome&&<div style={{color:C.t3,fontSize:12}}>No nodes defined. Edit JSON to add nodes.</div>}
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            {hist.length>0&&<button onClick={goBack}
+              style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${C.b2}`,background:"transparent",color:C.t3,cursor:"pointer",fontSize:12}}>← Back</button>}
+            <button onClick={reset}
+              style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${C.b2}`,background:"transparent",color:C.t3,cursor:"pointer",fontSize:12}}>↺ Restart</button>
+            <div style={{flex:1}}/>
+            <div style={{fontSize:11,color:C.t3,alignSelf:"center",fontFamily:"'Space Mono',mono"}}>
+              {item.nodes?.length||0} nodes · {item.outcomes?.length||0} outcomes
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-    <input value={item.topic||""} onChange={e=>onChange({...item,topic:e.target.value})} placeholder="Topic (e.g. Charge Registration Validity)"
-      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t1,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
-    <input value={item.logic||""} onChange={e=>onChange({...item,logic:e.target.value})} placeholder="Condition to check (e.g. Filed within 30 days?)"
-      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.bl,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
-    <input value={item.outcome||""} onChange={e=>onChange({...item,outcome:e.target.value})} placeholder="Yes → outcome; No → outcome"
-      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"8px 10px",borderRadius:6,fontSize:12}}/>
-  </div>
-);
+  );
+};
 
 // ── MAIN APP ──────────────────────────────────────────────────────
 function App(){
@@ -596,7 +716,7 @@ function App(){
               {activeTab==="amendments"&&(
                 <div>
                   {(generated.amendments||[]).map((a,i)=><AmendCard key={i} item={a} onChange={v=>updateAmend(i,v)} onDelete={()=>removeItem("amendments",i)}/>)}
-                  <Btn onClick={()=>addItem("amendments",{id:`${generated.id}.A${(generated.amendments?.length||0)+1}`,topic:"",what:"",relevance:"High",priority:"High"})} outline>+ Add Amendment</Btn>
+                  <Btn onClick={()=>addItem("amendments",{id:`${generated.id}.A${(generated.amendments?.length||0)+1}`,topic:"",what:"",oldPosition:"",newPosition:"",effectiveFrom:"",pdfStatus:"not mentioned",priority:"High"})} outline>+ Add Amendment</Btn>
                 </div>
               )}
 
@@ -610,7 +730,7 @@ function App(){
               {activeTab==="trees"&&subject.hasCase&&(
                 <div>
                   {(generated.trees||[]).map((t,i)=><TreeCard key={i} item={t} onChange={v=>updateTree(i,v)} onDelete={()=>removeItem("trees",i)}/>)}
-                  <Btn onClick={()=>addItem("trees",{id:`${generated.id}.DT${(generated.trees?.length||0)+1}`,topic:"",logic:"",outcome:"Yes → ; No → "})} outline>+ Add Decision Tree</Btn>
+                  <Btn onClick={()=>addItem("trees",{id:`${generated.id}.DT${(generated.trees?.length||0)+1}`,topic:"New Decision Tree",nodes:[{id:"n1",label:"Opening condition?",branches:[{label:"Yes",target:"outcomeA"},{label:"No",target:"outcomeB"}]}],outcomes:[{id:"outcomeA",label:"Outcome if Yes",reference:""},{id:"outcomeB",label:"Outcome if No",reference:""}]})} outline>+ Add Decision Tree</Btn>
                 </div>
               )}
 
