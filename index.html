@@ -77,7 +77,7 @@ const generateWithAI=async(apiKey,subject,chapterName,pdfBase64,chapterId)=>{
     r=await fetch("https://api.anthropic.com/v1/messages",{
       method:"POST",
       headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-      body:JSON.stringify({model:"claude-opus-4-5",max_tokens:8000,system:systemPrompt,messages:[{role:"user",content:[
+      body:JSON.stringify({model:"claude-opus-4-5",max_tokens:16000,system:systemPrompt,messages:[{role:"user",content:[
         {type:"document",source:{type:"base64",media_type:"application/pdf",data:pdfBase64}},
         {type:"text",text:userPrompt}
       ]}]})
@@ -142,17 +142,41 @@ Remember: MCQ options must be computed values or precise legal statements — no
 
 const P1_SCHEMA=(id)=>({
   id,name:"[Chapter Name]",
+  dangerZones:[
+    {id:`${id}.DZ1`,point:"[The exact trap ICAI uses — e.g. capitalising borrowing cost for inventory that is not a qualifying asset]",mistake:"[What students do wrong]",why:"[Why ICAI tests this specifically]",priority:"Very High"},
+    {id:`${id}.DZ2`,point:"[A second danger zone from this chapter's actual content]",mistake:"[Mistake]",why:"[ICAI testing reason]",priority:"High"},
+    {id:`${id}.DZ3`,point:"[Third trap]",mistake:"[Mistake]",why:"[Reason]",priority:"High"},
+  ],
+  formulaGuide:[
+    {id:`${id}.FG1`,topic:"[Multi-level decision title e.g. 'Is Borrowing Cost Capitalisable?']",nodes:[{id:"n1",label:"[Opening condition?]",branches:[{label:"Yes",target:"n2"},{label:"No",target:"outcomeA"}]},{id:"n2",label:"[Secondary condition?]",branches:[{label:"Specific Borrowing",target:"outcomeB"},{label:"General Borrowing",target:"n3"}]},{id:"n3",label:"[Third level condition?]",branches:[{label:"Yes",target:"outcomeC"},{label:"No",target:"outcomeD"}]}],outcomes:[{id:"outcomeA",label:"[Not capitalisable — expense to P&L]",reference:"AS X Para Y"},{id:"outcomeB",label:"[Capitalise actual borrowing cost]",reference:"AS X Para Y"},{id:"outcomeC",label:"[Capitalise at weighted avg rate]",reference:"AS X Para Y"},{id:"outcomeD",label:"[Cap at actual total borrowing cost]",reference:"AS X Para Y"}]},
+    {id:`${id}.FG2`,topic:"[Second formula/decision tree from this chapter]",nodes:[{id:"n1",label:"[First condition?]",branches:[{label:"Branch A",target:"outcomeA"},{label:"Branch B",target:"n2"},{label:"Branch C",target:"outcomeC"}]},{id:"n2",label:"[Sub-condition?]",branches:[{label:"Yes",target:"outcomeB"},{label:"No",target:"outcomeD"}]}],outcomes:[{id:"outcomeA",label:"[Treatment A]",reference:""},{id:"outcomeB",label:"[Treatment B]",reference:""},{id:"outcomeC",label:"[Treatment C]",reference:""},{id:"outcomeD",label:"[Treatment D]",reference:""}]},
+  ],
+  flashcards:[
+    {id:`${id}.FC1`,front:"[Provision/definition name exactly as in PDF]",back:"[Verbatim text from PDF — do not paraphrase]",section:"AS X Para Y"},
+    {id:`${id}.FC2`,front:"[Another definition from the chapter]",back:"[Verbatim text]",section:"AS X Para Y"},
+    {id:`${id}.FC3`,front:"[Formula name]",back:"[Exact formula/rule text from PDF]",section:"AS X Para Y"},
+    {id:`${id}.FC4`,front:"[Key term]",back:"[Verbatim definition]",section:"AS X Para Y"},
+    {id:`${id}.FC5`,front:"[Another key provision from this chapter]",back:"[Verbatim text]",section:"AS X Para Y"},
+  ],
+  practiceProblems:[
+    {id:`${id}.PP1`,title:"[Problem name]",difficulty:3,problem:"[Full problem statement with all given data and exact ₹ amounts]",steps:["Step 1: [Identify what to calculate]","Step 2: [Apply relevant AS formula/provision]","Step 3: [Show workings]","Step 4: [State the final amount and treatment]"],answer:"[Final answer — include key line items and AS reference]",topic:"[Sub-topic this problem tests]"},
+    {id:`${id}.PP2`,title:"[Second problem at higher difficulty]",difficulty:4,problem:"[Problem statement]",steps:["Step 1: [...]","Step 2: [...]","Step 3: [...]"],answer:"[Answer]",topic:"[Sub-topic]"},
+  ],
+  caseMCQs:{
+    scenario:"[Named company e.g. 'RNK Ltd.', FY 31st March 2025, 2-3 specific situations with exact ₹ amounts in this chapter's typical computation ranges]",
+    questions:[
+      {id:`${id}.CQ1`,q:"[Question 1 derived from scenario — asks for a computed amount]",opts:["₹X,XX,XXX (correct computation)","₹X,XX,XXX (wrong formula)","₹X,XX,XXX (missing item)","₹X,XX,XXX (wrong rate)"],ans:0,exp:"[Explanation citing AS number — why correct, why others fail]",type:"Trap",diff:2},
+      {id:`${id}.CQ2`,q:"[Question 2 from scenario]",opts:["₹X,XX,XXX","₹X,XX,XXX","₹X,XX,XXX","₹X,XX,XXX"],ans:1,exp:"[Explanation]",type:"Concept",diff:2},
+      {id:`${id}.CQ3`,q:"[Question 3 — tests amendment or exception from this chapter]",opts:["₹X,XX,XXX","₹X,XX,XXX","₹X,XX,XXX","₹X,XX,XXX"],ans:2,exp:"[Explanation]",type:"Amendment",diff:3},
+    ]
+  },
   mcqs:[
-    {id:`${id}.Q1`,q:"[Case scenario question — asks for computed amount]",opts:["₹X,XX,XXX","₹X,XX,XXX","₹X,XX,XXX","₹X,XX,XXX"],ans:0,exp:"[Explanation citing AS XX — why correct, why others fail]",type:"Trap",diff:2},
-    {id:`${id}.Q2`,q:"[Another computation from same scenario]",opts:["Option A","Option B","Option C","Option D"],ans:1,exp:"[Explanation]",type:"Concept",diff:2},
-    {id:`${id}.Q3`,q:"[Third question from scenario]",opts:["Option A","Option B","Option C","Option D"],ans:2,exp:"[Explanation]",type:"Trap",diff:3},
-    {id:`${id}.Q4`,q:"[Standalone concept MCQ — tests AS distinction]",opts:["Option A","Option B","Option C","Option D"],ans:0,exp:"[Explanation]",type:"Concept",diff:1},
-    {id:`${id}.Q5`,q:"[Amendment-related MCQ]",opts:["Option A","Option B","Option C","Option D"],ans:1,exp:"[Explanation]",type:"Amendment",diff:1},
+    {id:`${id}.Q1`,q:"[Case scenario question — asks for computed amount]",opts:["₹X,XX,XXX","₹X,XX,XXX","₹X,XX,XXX","₹X,XX,XXX"],ans:0,exp:"[Explanation citing AS XX]",type:"Trap",diff:2},
+    {id:`${id}.Q2`,q:"[Standalone concept MCQ — tests AS distinction]",opts:["Option A","Option B","Option C","Option D"],ans:1,exp:"[Explanation]",type:"Concept",diff:1},
   ],
   tricky:[
     {id:`${id}.1`,point:"[Specific trap e.g. 'Capitalizing borrowing cost for non-qualifying assets']",mistake:"[What students do wrong]",why:"[Why ICAI tests this]",priority:"High"},
     {id:`${id}.2`,point:"[Another trap]",mistake:"[Mistake]",why:"[Reason]",priority:"High"},
-    {id:`${id}.3`,point:"[Third trap]",mistake:"[Mistake]",why:"[Reason]",priority:"Medium"},
   ],
   amendments:[
     {id:`${id}.A1`,topic:"[Amendment name]",what:"[What changed — cite MCA notification / ICAI circular / AS revision]",oldPosition:"[What the provision said before the amendment]",newPosition:"[What the provision says now]",effectiveFrom:"[e.g. May 2026 attempt]",pdfStatus:"not mentioned",priority:"High"},
@@ -161,10 +185,37 @@ const P1_SCHEMA=(id)=>({
 
 const P2_SCHEMA=(id)=>({
   id,name:"[Chapter Name]",
+  dangerZones:[
+    {id:`${id}.DZ1`,point:"[The exact trap ICAI uses e.g. confusing void ab initio with void against liquidator/creditors only]",mistake:"[What students do wrong]",why:"[Why ICAI tests this specifically]",priority:"Very High"},
+    {id:`${id}.DZ2`,point:"[Second danger zone from this chapter's actual content]",mistake:"[Mistake]",why:"[Reason]",priority:"High"},
+    {id:`${id}.DZ3`,point:"[Third trap]",mistake:"[Mistake]",why:"[Reason]",priority:"High"},
+  ],
+  formulaGuide:[
+    {id:`${id}.FG1`,topic:"[Multi-level legal decision e.g. 'Is the charge valid against liquidator?']",nodes:[{id:"n1",label:"[Opening condition?]",branches:[{label:"Yes",target:"n2"},{label:"No",target:"outcomeA"}]},{id:"n2",label:"[Secondary condition?]",branches:[{label:"Option A",target:"outcomeB"},{label:"Option B",target:"n3"},{label:"Option C",target:"outcomeC"}]},{id:"n3",label:"[Third level?]",branches:[{label:"Yes",target:"outcomeD"},{label:"No",target:"outcomeE"}]}],outcomes:[{id:"outcomeA",label:"[Outcome A]",reference:"Section XX"},{id:"outcomeB",label:"[Outcome B]",reference:"Section YY"},{id:"outcomeC",label:"[Outcome C]",reference:"Section ZZ"},{id:"outcomeD",label:"[Outcome D]",reference:""},{id:"outcomeE",label:"[Outcome E]",reference:""}]},
+    {id:`${id}.FG2`,topic:"[Second legal decision tree]",nodes:[{id:"n1",label:"[First condition?]",branches:[{label:"Yes",target:"outcomeA"},{label:"No",target:"n2"}]},{id:"n2",label:"[Sub-condition?]",branches:[{label:"Yes",target:"outcomeB"},{label:"No",target:"outcomeC"}]}],outcomes:[{id:"outcomeA",label:"[Treatment A]",reference:""},{id:"outcomeB",label:"[Treatment B]",reference:""},{id:"outcomeC",label:"[Treatment C]",reference:""}]},
+  ],
+  flashcards:[
+    {id:`${id}.FC1`,front:"[Legal definition name exactly as in PDF]",back:"[Verbatim text from PDF — do not paraphrase]",section:"Section XX"},
+    {id:`${id}.FC2`,front:"[Another definition or provision]",back:"[Verbatim text]",section:"Section YY"},
+    {id:`${id}.FC3`,front:"[Threshold/timeline/number]",back:"[Exact text from PDF]",section:"Section ZZ"},
+    {id:`${id}.FC4`,front:"[Key term]",back:"[Verbatim definition]",section:"Section WW"},
+    {id:`${id}.FC5`,front:"[Another key provision]",back:"[Verbatim text]",section:"Section VV"},
+  ],
+  practiceProblems:[
+    {id:`${id}.PP1`,title:"[Problem name]",difficulty:3,problem:"[Full legal scenario with named company, dates, facts, and specific legal question]",steps:["Step 1: [Identify the applicable section]","Step 2: [State the legal requirement]","Step 3: [Apply to the facts]","Step 4: [Conclusion]"],answer:"[Final answer with section reference]",topic:"[Sub-topic]"},
+    {id:`${id}.PP2`,title:"[Second problem]",difficulty:4,problem:"[Scenario]",steps:["Step 1: [...]","Step 2: [...]","Step 3: [...]"],answer:"[Answer]",topic:"[Sub-topic]"},
+  ],
+  caseMCQs:{
+    scenario:"[Named company, FY 31st March 2025, 2-3 specific legal situations with exact facts that trigger different provisions from this chapter]",
+    questions:[
+      {id:`${id}.CQ1`,q:"[Question 1 from scenario — which provision applies?]",opts:["[Precise legal statement A]","[Precise legal statement B]","[Precise legal statement C]","[Precise legal statement D]"],ans:0,exp:"[Explanation with Section XX of Companies Act 2013]",type:"Trap",diff:2},
+      {id:`${id}.CQ2`,q:"[Question 2 from scenario]",opts:["Option A","Option B","Option C","Option D"],ans:1,exp:"[Explanation]",type:"Concept",diff:2},
+      {id:`${id}.CQ3`,q:"[Question 3 — tests amendment]",opts:["Option A","Option B","Option C","Option D"],ans:2,exp:"[Explanation]",type:"Amendment",diff:3},
+    ]
+  },
   mcqs:[
     {id:`${id}.Q1`,q:"[Legal scenario question — which provision applies?]",opts:["[Precise legal statement A]","[Precise legal statement B]","[Precise legal statement C]","[Precise legal statement D]"],ans:0,exp:"[Explanation with Section XX of Companies Act 2013]",type:"Trap",diff:2},
-    {id:`${id}.Q2`,q:"[Another question from same scenario]",opts:["Option A","Option B","Option C","Option D"],ans:2,exp:"[Explanation]",type:"Concept",diff:2},
-    {id:`${id}.Q3`,q:"[Standalone MCQ testing section knowledge]",opts:["Option A","Option B","Option C","Option D"],ans:1,exp:"[Explanation]",type:"Amendment",diff:1},
+    {id:`${id}.Q2`,q:"[Standalone MCQ testing section knowledge]",opts:["Option A","Option B","Option C","Option D"],ans:1,exp:"[Explanation]",type:"Amendment",diff:1},
   ],
   tricky:[
     {id:`${id}.1`,point:"[e.g. 'Section 77(3) — charge void against liquidator/creditors, NOT void ab initio']",mistake:"[Common mistake]",why:"[ICAI testing reason]",priority:"Very High"},
@@ -179,7 +230,6 @@ const P2_SCHEMA=(id)=>({
   ],
   trees:[
     {id:`${id}.DT1`,topic:"[Legal decision topic — e.g. 'Charge Registration Validity']",nodes:[{id:"n1",label:"[Opening condition? e.g. 'Filed within 30 days?']",branches:[{label:"Yes",target:"n2"},{label:"No",target:"outcomeA"}]},{id:"n2",label:"[Next condition? e.g. 'Is charge in favour of bank?']",branches:[{label:"Yes",target:"outcomeB"},{label:"No",target:"outcomeC"}]}],outcomes:[{id:"outcomeA",label:"[Outcome if filed late]",reference:"Section XX"},{id:"outcomeB",label:"[Outcome if both conditions met]",reference:"Section YY"},{id:"outcomeC",label:"[Outcome if second condition fails]",reference:"Section ZZ"}]},
-    {id:`${id}.DT2`,topic:"[Another multi-branch decision]",nodes:[{id:"n1",label:"[First condition?]",branches:[{label:"Branch A",target:"outcomeA"},{label:"Branch B",target:"n2"},{label:"Branch C",target:"outcomeC"}]},{id:"n2",label:"[Sub-condition?]",branches:[{label:"Yes",target:"outcomeB"},{label:"No",target:"outcomeD"}]}],outcomes:[{id:"outcomeA",label:"[Treatment A]",reference:""},{id:"outcomeB",label:"[Treatment B]",reference:""},{id:"outcomeC",label:"[Treatment C]",reference:""},{id:"outcomeD",label:"[Treatment D]",reference:""}]},
   ]
 });
 
@@ -204,6 +254,136 @@ const Btn=({children,onClick,disabled,color=C.am,outline=false,style={}})=>(
 const Badge=({text,color})=>(
   <span style={{fontSize:9,padding:"2px 7px",borderRadius:3,border:`1px solid ${color}35`,background:`${color}18`,color,fontFamily:"'Space Mono',mono",fontWeight:700,letterSpacing:1}}>{text}</span>
 );
+
+// ── DANGER ZONE EDITOR ───────────────────────────────────────────
+const DangerZoneCard=({item,onChange,onDelete})=>{
+  const pc=item.priority==="Very High"?C.rd:item.priority==="High"?C.am:C.t3;
+  return(
+    <div style={{background:C.s2,border:`1px solid ${pc}25`,borderRadius:10,padding:14,marginBottom:8}}>
+      <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+        <Badge text="⚡ DANGER ZONE" color={C.am}/>
+        <select value={item.priority||"High"} onChange={e=>onChange({...item,priority:e.target.value})}
+          style={{marginLeft:"auto",background:C.s3,border:`1px solid ${C.b2}`,color:pc,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+          {["Very High","High","Medium"].map(p=><option key={p}>{p}</option>)}
+        </select>
+        <button onClick={onDelete} style={{color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px",background:"none",border:"none"}}>×</button>
+      </div>
+      <input value={item.point||""} onChange={e=>onChange({...item,point:e.target.value})} placeholder="The specific trap ICAI uses..."
+        style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t1,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+      <input value={item.mistake||""} onChange={e=>onChange({...item,mistake:e.target.value})} placeholder="What students do wrong..."
+        style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+      <input value={item.why||""} onChange={e=>onChange({...item,why:e.target.value})} placeholder="Why ICAI tests this..."
+        style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t3,padding:"8px 10px",borderRadius:6,fontSize:12}}/>
+    </div>
+  );
+};
+
+// ── FLASHCARD EDITOR ─────────────────────────────────────────────
+const FlashCard=({item,onChange,onDelete})=>{
+  const [flipped,setFlipped]=useState(false);
+  return(
+    <div style={{background:C.s2,border:`1px solid #2DD4BF20`,borderRadius:10,padding:14,marginBottom:8}}>
+      <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+        <Badge text="FLASHCARD" color="#2DD4BF"/>
+        <span style={{flex:1,fontSize:11,color:C.t3,fontFamily:"'Space Mono',mono"}}>{item.section||""}</span>
+        <button onClick={()=>setFlipped(!flipped)} style={{padding:"3px 10px",borderRadius:5,border:`1px solid ${C.b2}`,background:"transparent",color:C.t3,cursor:"pointer",fontSize:11}}>Flip</button>
+        <button onClick={onDelete} style={{color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px",background:"none",border:"none"}}>×</button>
+      </div>
+      <input value={item.front||""} onChange={e=>onChange({...item,front:e.target.value})} placeholder="Front — term / provision name..."
+        style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t1,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+      <input value={item.section||""} onChange={e=>onChange({...item,section:e.target.value})} placeholder="Section reference — e.g. AS 16 Para 4"
+        style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t3,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+      <textarea value={item.back||""} onChange={e=>onChange({...item,back:e.target.value})} rows={3} placeholder="Back — verbatim text from PDF, do not paraphrase..."
+        style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"8px 10px",borderRadius:6,fontSize:12,resize:"vertical",marginBottom:6}}/>
+      <div onClick={()=>setFlipped(!flipped)} style={{padding:10,borderRadius:6,background:flipped?C.s1:C.s3,cursor:"pointer",minHeight:48,border:`1px solid ${C.b2}`}}>
+        <div style={{fontSize:9,color:C.t3,marginBottom:3,fontFamily:"'Space Mono',mono"}}>{flipped?"BACK (click to flip)":"FRONT (click to flip)"}</div>
+        <div style={{fontSize:12,color:flipped?"#2DD4BF":C.t1,lineHeight:1.5}}>{flipped?(item.back||"—"):(item.front||"—")}</div>
+      </div>
+    </div>
+  );
+};
+
+// ── PRACTICE PROBLEM EDITOR ──────────────────────────────────────
+const PracticeProblemCard=({item,onChange,onDelete})=>{
+  const addStep=()=>onChange({...item,steps:[...(item.steps||[]),`Step ${(item.steps?.length||0)+1}: `]});
+  const removeStep=(i)=>{const s=[...(item.steps||[])];s.splice(i,1);onChange({...item,steps:s});};
+  const updateStep=(i,v)=>{const s=[...(item.steps||[])];s[i]=v;onChange({...item,steps:s});};
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.pu}20`,borderRadius:10,padding:14,marginBottom:10}}>
+      <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+        <Badge text="PRACTICE PROBLEM" color={C.pu}/>
+        <select value={item.difficulty||2} onChange={e=>onChange({...item,difficulty:Number(e.target.value)})}
+          style={{background:C.s3,border:`1px solid ${C.b2}`,color:C.pu,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+          {[1,2,3,4,5].map(d=><option key={d} value={d}>Diff {d}</option>)}
+        </select>
+        <input value={item.topic||""} onChange={e=>onChange({...item,topic:e.target.value})} placeholder="Sub-topic..."
+          style={{flex:1,background:C.s3,border:`1px solid ${C.b2}`,color:C.t3,padding:"4px 8px",borderRadius:5,fontSize:11}}/>
+        <button onClick={onDelete} style={{color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px",background:"none",border:"none"}}>×</button>
+      </div>
+      <input value={item.title||""} onChange={e=>onChange({...item,title:e.target.value})} placeholder="Problem title..."
+        style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t1,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+      <TA value={item.problem||""} onChange={v=>onChange({...item,problem:v})} rows={4} placeholder="Full problem statement with all given data and exact amounts..."/>
+      <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:6}}>SOLUTION STEPS</div>
+      {(item.steps||[]).map((step,i)=>(
+        <div key={i} style={{display:"flex",gap:6,marginBottom:5,alignItems:"flex-start"}}>
+          <span style={{fontSize:11,color:C.t3,paddingTop:9,minWidth:18,fontFamily:"'Space Mono',mono"}}>{i+1}.</span>
+          <textarea value={step} onChange={e=>updateStep(i,e.target.value)} rows={2}
+            style={{flex:1,background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"7px 10px",borderRadius:6,fontSize:12,resize:"vertical"}}/>
+          <button onClick={()=>removeStep(i)} style={{color:C.t3,cursor:"pointer",fontSize:13,padding:"8px 4px",background:"none",border:"none",marginTop:1}}>×</button>
+        </div>
+      ))}
+      <Btn onClick={addStep} outline style={{fontSize:11,padding:"5px 10px",marginBottom:8}}>+ Step</Btn>
+      <TA label="FINAL ANSWER" value={item.answer||""} onChange={v=>onChange({...item,answer:v})} rows={2} placeholder="Final answer with key workings and AS/Section reference..."/>
+    </div>
+  );
+};
+
+// ── CASE MCQs EDITOR ─────────────────────────────────────────────
+const CaseMCQsEditor=({data,onChange})=>{
+  const d=data||{scenario:"",questions:[]};
+  const updateQ=(i,v)=>{const qs=[...(d.questions||[])];qs[i]=v;onChange({...d,questions:qs});};
+  const addQ=()=>onChange({...d,questions:[...(d.questions||[]),{id:`CQ${(d.questions?.length||0)+1}`,q:"",opts:["₹","₹","₹","₹"],ans:0,exp:"",type:"Trap",diff:2}]});
+  const removeQ=(i)=>{const qs=[...(d.questions||[])];qs.splice(i,1);onChange({...d,questions:qs});};
+  return(
+    <div>
+      <TA label="CASE SCENARIO" value={d.scenario||""} onChange={v=>onChange({...d,scenario:v})} rows={6}
+        placeholder="Named company, FY 31st March 2025, 2-3 specific situations with exact ₹ amounts..."/>
+      <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:8}}>
+        QUESTIONS ({d.questions?.length||0})
+      </div>
+      {(d.questions||[]).map((mcq,i)=>(
+        <div key={i} style={{background:C.s2,border:`1px solid ${C.am}20`,borderRadius:10,padding:14,marginBottom:10}}>
+          <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+            <span style={{fontFamily:"'Space Mono',mono",fontSize:11,color:C.t3}}>Q{i+1}</span>
+            <select value={mcq.type||"Trap"} onChange={e=>updateQ(i,{...mcq,type:e.target.value})}
+              style={{background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+              {["Trap","Concept","Amendment"].map(t=><option key={t}>{t}</option>)}
+            </select>
+            <select value={mcq.diff||2} onChange={e=>updateQ(i,{...mcq,diff:Number(e.target.value)})}
+              style={{background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+              {[1,2,3].map(d=><option key={d} value={d}>Diff {d}</option>)}
+            </select>
+            <button onClick={()=>removeQ(i)} style={{marginLeft:"auto",color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px",background:"none",border:"none"}}>×</button>
+          </div>
+          <TA value={mcq.q||""} onChange={v=>updateQ(i,{...mcq,q:v})} rows={2} placeholder="Question derived from the scenario above..."/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            {(mcq.opts||["₹","₹","₹","₹"]).map((opt,oi)=>(
+              <div key={oi} style={{display:"flex",gap:6,alignItems:"center"}}>
+                <button onClick={()=>updateQ(i,{...mcq,ans:oi})}
+                  style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${mcq.ans===oi?C.gr:C.b3}`,background:mcq.ans===oi?C.gr:"transparent",flexShrink:0,cursor:"pointer"}}/>
+                <input value={opt} onChange={e=>{const o=[...(mcq.opts||[])];o[oi]=e.target.value;updateQ(i,{...mcq,opts:o});}}
+                  placeholder={`${["A","B","C","D"][oi]}: ₹ amount`}
+                  style={{flex:1,background:C.s3,border:`1px solid ${mcq.ans===oi?C.gr+"40":C.b2}`,color:C.t1,padding:"6px 10px",borderRadius:6,fontSize:12}}/>
+              </div>
+            ))}
+          </div>
+          <TA value={mcq.exp||""} onChange={v=>updateQ(i,{...mcq,exp:v})} rows={2} placeholder="Explanation citing AS/Section number..."/>
+        </div>
+      ))}
+      <Btn onClick={addQ} outline>+ Add MCQ</Btn>
+    </div>
+  );
+};
 
 // ── LOGIN ─────────────────────────────────────────────────────────
 const Login=({onLogin})=>{
@@ -543,8 +723,19 @@ function App(){
       // Ensure IDs are set correctly
       result.id=result.id||id;
       result.name=result.name===("[Chapter Name]")?chapterName:result.name;
+      if(!Array.isArray(result.dangerZones))result.dangerZones=[];
+      if(!Array.isArray(result.formulaGuide))result.formulaGuide=[];
+      if(!Array.isArray(result.flashcards))result.flashcards=[];
+      if(!Array.isArray(result.practiceProblems))result.practiceProblems=[];
+      if(!result.caseMCQs||typeof result.caseMCQs!=="object")result.caseMCQs={scenario:"",questions:[]};
+      if(!Array.isArray(result.caseMCQs.questions))result.caseMCQs.questions=[];
+      if(!Array.isArray(result.mcqs))result.mcqs=[];
+      if(!Array.isArray(result.tricky))result.tricky=[];
+      if(!Array.isArray(result.amendments))result.amendments=[];
+      if(!Array.isArray(result.cases))result.cases=[];
+      if(!Array.isArray(result.trees))result.trees=[];
       setGenerated(result);
-      setActiveTab("mcqs");
+      setActiveTab("dangerZones");
       setStatus("idle");
     }catch(e){
       setStatus("error");
@@ -602,9 +793,14 @@ function App(){
 
   // Tab helpers
   const tabs=[
+    {id:"dangerZones",label:`Danger ${generated?.dangerZones?.length?`(${generated.dangerZones.length})`:""}`},
+    {id:"formulaGuide",label:`Formula ${generated?.formulaGuide?.length?`(${generated.formulaGuide.length})`:""}`},
+    {id:"flashcards",label:`Flash ${generated?.flashcards?.length?`(${generated.flashcards.length})`:""}`},
+    {id:"practiceProblems",label:`Practice ${generated?.practiceProblems?.length?`(${generated.practiceProblems.length})`:""}`},
+    {id:"amendments",label:`Amend ${generated?.amendments?.length?`(${generated.amendments.length})`:""}`},
+    {id:"caseMCQs",label:`Case MCQs`},
     {id:"mcqs",label:`MCQs ${generated?.mcqs?.length?`(${generated.mcqs.length})`:""}`},
     {id:"tricky",label:`Tricky ${generated?.tricky?.length?`(${generated.tricky.length})`:""}`},
-    {id:"amendments",label:`Amend ${generated?.amendments?.length?`(${generated.amendments.length})`:""}`},
     ...(subject.hasCase?[
       {id:"cases",label:`Cases ${generated?.cases?.length?`(${generated.cases.length})`:""}`},
       {id:"trees",label:`Trees ${generated?.trees?.length?`(${generated.trees.length})`:""}`},
@@ -612,6 +808,7 @@ function App(){
     {id:"json",label:"JSON"},
   ];
 
+  const updateItem=(key,i,val)=>{const arr=[...(generated[key]||[])];arr[i]=val;setGenerated({...generated,[key]:arr});};
   const updateMCQ=(i,val)=>{const m=[...generated.mcqs];m[i]=val;setGenerated({...generated,mcqs:m});};
   const updateTricky=(i,val)=>{const t=[...generated.tricky];t[i]=val;setGenerated({...generated,tricky:t});};
   const updateAmend=(i,val)=>{const a=[...generated.amendments];a[i]=val;setGenerated({...generated,amendments:a});};
@@ -751,16 +948,43 @@ function App(){
               </div>
 
               {/* Tabs */}
-              <div style={{display:"flex",gap:2,marginBottom:16,borderBottom:`1px solid ${C.b1}`,paddingBottom:0}}>
+              <div style={{display:"flex",gap:2,marginBottom:16,borderBottom:`1px solid ${C.b1}`,paddingBottom:0,overflowX:"auto"}}>
                 {tabs.map(t=>(
                   <button key={t.id} onClick={()=>setActiveTab(t.id)}
-                    style={{padding:"8px 14px",borderRadius:"6px 6px 0 0",border:"none",background:activeTab===t.id?C.s2:"transparent",color:activeTab===t.id?C.t1:C.t3,cursor:"pointer",fontSize:12,fontWeight:activeTab===t.id?600:400,borderBottom:activeTab===t.id?`2px solid ${C.am}`:"2px solid transparent"}}>
+                    style={{padding:"8px 14px",borderRadius:"6px 6px 0 0",border:"none",background:activeTab===t.id?C.s2:"transparent",color:activeTab===t.id?C.t1:C.t3,cursor:"pointer",fontSize:12,fontWeight:activeTab===t.id?600:400,borderBottom:activeTab===t.id?`2px solid ${C.am}`:"2px solid transparent",whiteSpace:"nowrap",flexShrink:0}}>
                     {t.label}
                   </button>
                 ))}
               </div>
 
               {/* Tab content */}
+              {activeTab==="dangerZones"&&(
+                <div>
+                  {(generated.dangerZones||[]).map((dz,i)=><DangerZoneCard key={i} item={dz} onChange={v=>updateItem("dangerZones",i,v)} onDelete={()=>removeItem("dangerZones",i)}/>)}
+                  <Btn onClick={()=>addItem("dangerZones",{id:`${generated.id}.DZ${(generated.dangerZones?.length||0)+1}`,point:"",mistake:"",why:"",priority:"High"})} outline>+ Add Danger Zone</Btn>
+                </div>
+              )}
+
+              {activeTab==="formulaGuide"&&(
+                <div>
+                  {(generated.formulaGuide||[]).map((t,i)=><TreeCard key={i} item={t} onChange={v=>updateItem("formulaGuide",i,v)} onDelete={()=>removeItem("formulaGuide",i)}/>)}
+                  <Btn onClick={()=>addItem("formulaGuide",{id:`${generated.id}.FG${(generated.formulaGuide?.length||0)+1}`,topic:"New Formula Tree",nodes:[{id:"n1",label:"Opening condition?",branches:[{label:"Yes",target:"outcomeA"},{label:"No",target:"outcomeB"}]}],outcomes:[{id:"outcomeA",label:"Outcome if Yes",reference:""},{id:"outcomeB",label:"Outcome if No",reference:""}]})} outline>+ Add Formula Tree</Btn>
+                </div>
+              )}
+
+              {activeTab==="flashcards"&&(
+                <div>
+                  {(generated.flashcards||[]).map((fc,i)=><FlashCard key={i} item={fc} onChange={v=>updateItem("flashcards",i,v)} onDelete={()=>removeItem("flashcards",i)}/>)}
+                  <Btn onClick={()=>addItem("flashcards",{id:`${generated.id}.FC${(generated.flashcards?.length||0)+1}`,front:"",back:"",section:""})} outline>+ Add Flashcard</Btn>
+                </div>
+              )}
+
+              {activeTab==="practiceProblems"&&(
+                <div>
+                  {(generated.practiceProblems||[]).map((pp,i)=><PracticeProblemCard key={i} item={pp} onChange={v=>updateItem("practiceProblems",i,v)} onDelete={()=>removeItem("practiceProblems",i)}/>)}
+                  <Btn onClick={()=>addItem("practiceProblems",{id:`${generated.id}.PP${(generated.practiceProblems?.length||0)+1}`,title:"",difficulty:2,problem:"",steps:[],answer:"",topic:""})} outline>+ Add Problem</Btn>
+                </div>
+              )}
               {activeTab==="mcqs"&&(
                 <div>
                   {(generated.mcqs||[]).map((mcq,i)=><MCQCard key={i} mcq={mcq} idx={i} onChange={v=>updateMCQ(i,v)}/>)}
@@ -780,6 +1004,10 @@ function App(){
                   {(generated.amendments||[]).map((a,i)=><AmendCard key={i} item={a} onChange={v=>updateAmend(i,v)} onDelete={()=>removeItem("amendments",i)}/>)}
                   <Btn onClick={()=>addItem("amendments",{id:`${generated.id}.A${(generated.amendments?.length||0)+1}`,topic:"",what:"",oldPosition:"",newPosition:"",effectiveFrom:"",pdfStatus:"not mentioned",priority:"High"})} outline>+ Add Amendment</Btn>
                 </div>
+              )}
+
+              {activeTab==="caseMCQs"&&(
+                <CaseMCQsEditor data={generated.caseMCQs} onChange={v=>setGenerated({...generated,caseMCQs:v})}/>
               )}
 
               {activeTab==="cases"&&subject.hasCase&&(
