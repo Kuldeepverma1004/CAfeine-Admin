@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CAfeine — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#070709;color:#EEEEF2;font-family:'Space Grotesk',sans-serif;min-height:100vh;font-size:14px}
+button,input,textarea,select{font-family:inherit;outline:none;border:none;background:none;color:inherit;font-size:inherit}
+textarea{resize:vertical}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:#070709}
+::-webkit-scrollbar-thumb{background:#2A2D38;border-radius:2px}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.fade{animation:fadeIn .25s ease}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+
+const C={bg:"#070709",s1:"#0F1015",s2:"#161820",s3:"#1D2030",b1:"#1E2230",b2:"#282E3E",b3:"#363D52",t1:"#EEEEF2",t2:"#9CA3AF",t3:"#5B6273",t4:"#363B47",am:"#E8A020",gr:"#22C55E",bl:"#60A5FA",rd:"#F87171",pu:"#A78BFA",te:"#2DD4BF"};
+const REPO="Kuldeepverma1004/CAfeine";
+const PASSWORD="CAfeineadmin@2026";
+const SUBJECTS=[
+  {id:"p1",name:"Advanced Accounting",code:"P1",prefix:"AA",hasCase:false,file:"p1.js",varName:"P1_DATA"},
+  {id:"p2",name:"Corporate & Other Laws",code:"P2",prefix:"P2C",hasCase:true,file:"p2.js",varName:"P2_DATA"},
+  {id:"p3",name:"Taxation",code:"P3",prefix:"TX",hasCase:false,file:"p3.js",varName:"P3_DATA"},
+  {id:"p4",name:"Cost & Management Accounting",code:"P4",prefix:"CM",hasCase:false,file:"p4.js",varName:"P4_DATA"},
+  {id:"p5",name:"Auditing & Ethics",code:"P5",prefix:"AU",hasCase:false,file:"p5.js",varName:"P5_DATA"},
+  {id:"p6",name:"FM & Strategic Management",code:"P6",prefix:"FM",hasCase:false,file:"p6.js",varName:"P6_DATA"},
+];
+
+// ── GITHUB API ────────────────────────────────────────────────────
+const toB64=(str)=>{
+  const bytes=new TextEncoder().encode(str);
+  let binary="";
+  bytes.forEach(b=>binary+=String.fromCharCode(b));
+  return btoa(binary);
+};
+const fromB64=(str)=>{
+  const binary=atob(str);
+  const bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+};
+
+const ghGet=async(path,token)=>{
+  const r=await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`,{headers:{"Authorization":`Bearer ${token}`,"Accept":"application/vnd.github.v3+json"}});
+  if(!r.ok)throw new Error(`GitHub GET failed: ${r.status}`);
+  return r.json();
+};
+const ghPut=async(path,content,sha,token,message)=>{
+  const body={message,content:toB64(content)};
+  if(sha)body.sha=sha;
+  const r=await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`,{method:"PUT",headers:{"Authorization":`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify(body)});
+  if(!r.ok){const e=await r.json();throw new Error(e.message||`GitHub PUT failed: ${r.status}`);}
+  return r.json();
+};
+
+// ── ANTHROPIC API ─────────────────────────────────────────────────
+const generateWithAI=async(apiKey,subject,chapterName,brief,reference,chapterId)=>{
+  const isP2=subject.hasCase;
+  const schema=isP2?P2_SCHEMA(chapterId):P1_SCHEMA(chapterId);
+  const systemPrompt=isP2?P2_SYSTEM:P1_SYSTEM;
+  const userPrompt=buildUserPrompt(subject,chapterName,brief,reference,schema);
+  const r=await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:8000,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
+  });
+  if(!r.ok){const e=await r.json();throw new Error(e.error?.message||`API error ${r.status}`);}
+  const data=await r.json();
+  const text=data.content[0].text.trim();
+  const jsonMatch=text.match(/\{[\s\S]*\}/);
+  if(!jsonMatch)throw new Error("AI did not return valid JSON. Try again.");
+  return JSON.parse(jsonMatch[0]);
+};
+
+// ── PROMPTS ───────────────────────────────────────────────────────
+const P1_SYSTEM=`You are a senior CA Inter exam paper setter for ICAI Advanced Accounting (Paper 1).
+You create exam content that exactly matches ICAI's January 2026 / May 2025 standard.
+
+ICAI P1 MCQ STYLE — follow these rules exactly:
+1. Always start with a CASE SCENARIO: name a company (e.g. "RNK Ltd."), give a financial year (31st March 2025), and describe 2-3 specific accounting situations with exact rupee amounts in lakhs/crores/units.
+2. Generate 4-5 MCQs that derive from this scenario. Each MCQ asks for a specific computed amount or accounting treatment.
+3. ALL FOUR OPTIONS must be plausible computed values based on the scenario data. Wrong options must represent real mistakes students make (wrong formula, wrong rate, excluded item, wrong AS provision).
+4. Explanation must cite the exact AS number and briefly explain why the correct answer is right AND why the most common wrong answer fails.
+5. Also add 2-3 standalone MCQs (type: Concept or Amendment) without a scenario — testing precise AS distinctions.
+6. Tricky points must name specific calculation errors, not generic advice.
+7. Only include amendments that are genuinely relevant to this chapter topic.
+
+Return ONLY valid JSON — no markdown fences, no explanation text before or after.`;
+
+const P2_SYSTEM=`You are a senior CA Inter exam paper setter for ICAI Corporate & Other Laws (Paper 2).
+You create exam content that exactly matches ICAI's January 2026 / May 2025 standard.
+
+ICAI P2 MCQ STYLE — follow these rules exactly:
+1. Create a detailed CASE SCENARIO: name companies (e.g. "Horizon Pvt. Ltd."), describe real legal complications with specific facts, dates, section violations, and legal consequences.
+2. Generate 3-4 MCQs from the scenario testing precise section application. Each option must be a complete legal statement — no vague answers.
+3. Options should test exact thresholds, timelines, and authority (e.g. "void against liquidator and creditors" vs "void ab initio" are different).
+4. CASES: Create 5-7 Yes/No scenarios. Each scenario is a specific fact situation; question asks "Is this valid?" or "Is X liable?". Include the exact section in reasoning.
+5. DECISION TREES: Create 4-6 trees showing how to apply the law. Logic field is the condition to check; outcome shows "Yes → result; No → result".
+6. Tricky points must cite exact section numbers and describe the precise conceptual confusion.
+7. Amendments must reference specific notifications, rules, or act amendments.
+
+Return ONLY valid JSON — no markdown fences, no explanation text before or after.`;
+
+const buildUserPrompt=(subject,chapterName,brief,reference,schema)=>`
+Create complete ICAI-standard chapter content for:
+Subject: ${subject.name} (${subject.code})
+Chapter: ${chapterName}
+Topic Brief: ${brief}
+${reference?`Reference Material (use exact sections/provisions/amounts from this):\n${reference}`:""}
+
+Output JSON must match this exact schema (use these IDs and structure):
+${JSON.stringify(schema,null,2)}
+
+Remember: MCQ options must be computed values or precise legal statements — not obvious right/wrong answers. Every tricky point must name a specific section or formula. Generate ICAI exam quality content.`;
+
+const P1_SCHEMA=(id)=>({
+  id,name:"[Chapter Name]",
+  mcqs:[
+    {id:`${id}.Q1`,q:"[Case scenario question — asks for computed amount]",opts:["₹X,XX,XXX","₹X,XX,XXX","₹X,XX,XXX","₹X,XX,XXX"],ans:0,exp:"[Explanation citing AS XX — why correct, why others fail]",type:"Trap",diff:2},
+    {id:`${id}.Q2`,q:"[Another computation from same scenario]",opts:["Option A","Option B","Option C","Option D"],ans:1,exp:"[Explanation]",type:"Concept",diff:2},
+    {id:`${id}.Q3`,q:"[Third question from scenario]",opts:["Option A","Option B","Option C","Option D"],ans:2,exp:"[Explanation]",type:"Trap",diff:3},
+    {id:`${id}.Q4`,q:"[Standalone concept MCQ — tests AS distinction]",opts:["Option A","Option B","Option C","Option D"],ans:0,exp:"[Explanation]",type:"Concept",diff:1},
+    {id:`${id}.Q5`,q:"[Amendment-related MCQ]",opts:["Option A","Option B","Option C","Option D"],ans:1,exp:"[Explanation]",type:"Amendment",diff:1},
+  ],
+  tricky:[
+    {id:`${id}.1`,point:"[Specific trap e.g. 'Capitalizing borrowing cost for non-qualifying assets']",mistake:"[What students do wrong]",why:"[Why ICAI tests this]",priority:"High"},
+    {id:`${id}.2`,point:"[Another trap]",mistake:"[Mistake]",why:"[Reason]",priority:"High"},
+    {id:`${id}.3`,point:"[Third trap]",mistake:"[Mistake]",why:"[Reason]",priority:"Medium"},
+  ],
+  amendments:[
+    {id:`${id}.A1`,topic:"[Amendment name]",what:"[What changed with rule/notification reference]",relevance:"High",priority:"High"},
+  ]
+});
+
+const P2_SCHEMA=(id)=>({
+  id,name:"[Chapter Name]",
+  mcqs:[
+    {id:`${id}.Q1`,q:"[Legal scenario question — which provision applies?]",opts:["[Precise legal statement A]","[Precise legal statement B]","[Precise legal statement C]","[Precise legal statement D]"],ans:0,exp:"[Explanation with Section XX of Companies Act 2013]",type:"Trap",diff:2},
+    {id:`${id}.Q2`,q:"[Another question from same scenario]",opts:["Option A","Option B","Option C","Option D"],ans:2,exp:"[Explanation]",type:"Concept",diff:2},
+    {id:`${id}.Q3`,q:"[Standalone MCQ testing section knowledge]",opts:["Option A","Option B","Option C","Option D"],ans:1,exp:"[Explanation]",type:"Amendment",diff:1},
+  ],
+  tricky:[
+    {id:`${id}.1`,point:"[e.g. 'Section 77(3) — charge void against liquidator/creditors, NOT void ab initio']",mistake:"[Common mistake]",why:"[ICAI testing reason]",priority:"Very High"},
+    {id:`${id}.2`,point:"[Another precision trap]",mistake:"[Mistake]",why:"[Reason]",priority:"High"},
+  ],
+  amendments:[
+    {id:`${id}.A1`,topic:"[Amendment]",what:"[What changed]",relevance:"High",priority:"High"},
+  ],
+  cases:[
+    {id:`${id}.C1`,scenario:"[Specific fact situation with named company, dates, amounts]",question:"Is this valid/legal?",answer:"Yes",reasoning:"[Under Section XX of Companies Act 2013, because...]",trap:"[Type of trap]",diff:3},
+    {id:`${id}.C2`,scenario:"[Another scenario]",question:"Is the director liable?",answer:"No",reasoning:"[Reasoning with section]",trap:"[Trap type]",diff:4},
+  ],
+  trees:[
+    {id:`${id}.DT1`,topic:"[Legal decision topic]",logic:"[Condition to check — e.g. 'Filed within 30 days?']",outcome:"Yes → Valid; No → Void against liquidator"},
+    {id:`${id}.DT2`,topic:"[Another decision]",logic:"[Condition]",outcome:"Yes → outcome; No → outcome"},
+  ]
+});
+
+// ── HELPERS ───────────────────────────────────────────────────────
+const Input=({label,value,onChange,placeholder,type="text",mono=false})=>(
+  <div style={{marginBottom:12}}>
+    {label&&<div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:6}}>{label}</div>}
+    <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+      style={{width:"100%",background:C.s2,border:`1px solid ${C.b2}`,color:C.t1,padding:"10px 12px",borderRadius:7,fontSize:13,fontFamily:mono?"'Space Mono',mono":"inherit"}}/>
+  </div>
+);
+const TA=({label,value,onChange,placeholder,rows=4})=>(
+  <div style={{marginBottom:12}}>
+    {label&&<div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:6}}>{label}</div>}
+    <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}
+      style={{width:"100%",background:C.s2,border:`1px solid ${C.b2}`,color:C.t1,padding:"10px 12px",borderRadius:7,fontSize:13,lineHeight:1.5}}/>
+  </div>
+);
+const Btn=({children,onClick,disabled,color=C.am,outline=false,style={}})=>(
+  <button onClick={disabled?null:onClick} style={{padding:"10px 18px",borderRadius:8,border:`1px solid ${outline?C.b2:color}`,background:outline?"transparent":disabled?C.s3:color,color:outline?C.t2:disabled?C.t3:"#000",fontWeight:700,cursor:disabled?"default":"pointer",fontSize:13,...style}}>{children}</button>
+);
+const Badge=({text,color})=>(
+  <span style={{fontSize:9,padding:"2px 7px",borderRadius:3,border:`1px solid ${color}35`,background:`${color}18`,color,fontFamily:"'Space Mono',mono",fontWeight:700,letterSpacing:1}}>{text}</span>
+);
+
+// ── LOGIN ─────────────────────────────────────────────────────────
+const Login=({onLogin})=>{
+  const [pwd,setPwd]=useState("");const [err,setErr]=useState("");
+  const attempt=()=>{if(pwd===PASSWORD)onLogin();else setErr("Wrong password.");};
+  return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{width:"100%",maxWidth:360}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{fontFamily:"'Syne',sans-serif",fontSize:32,fontWeight:800,marginBottom:4}}>
+            <span style={{color:C.am}}>CA</span><span style={{color:C.t1}}>feine</span>
+          </div>
+          <div style={{fontSize:10,color:C.t3,letterSpacing:4,fontFamily:"'Space Mono',mono"}}>ADMIN PANEL</div>
+        </div>
+        <div style={{background:C.s1,border:`1px solid ${C.b1}`,borderRadius:12,padding:24}}>
+          <Input label="PASSWORD" value={pwd} onChange={setPwd} type="password" placeholder="Enter admin password"/>
+          {err&&<div style={{fontSize:12,color:C.rd,marginBottom:10}}>{err}</div>}
+          <button onClick={attempt} style={{width:"100%",padding:12,borderRadius:8,background:C.am,color:"#000",fontWeight:700,fontSize:14,cursor:"pointer",border:"none"}}>
+            Enter →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── SETTINGS MODAL ────────────────────────────────────────────────
+const Settings=({onClose,apiKey,setApiKey,ghToken,setGhToken})=>{
+  const [ak,setAk]=useState(apiKey);const [gh,setGh]=useState(ghToken);
+  const save=()=>{localStorage.setItem("caf_admin_ak",ak);localStorage.setItem("caf_admin_gh",gh);setApiKey(ak);setGhToken(gh);onClose();};
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,padding:20}}>
+      <div style={{background:C.s1,border:`1px solid ${C.b2}`,borderRadius:14,padding:28,width:"100%",maxWidth:480}}>
+        <div style={{fontFamily:"'Syne',sans-serif",fontSize:18,fontWeight:700,marginBottom:4}}>API Keys</div>
+        <div style={{fontSize:12,color:C.t3,marginBottom:20}}>Stored in your browser only. Never sent anywhere except to their respective APIs.</div>
+        <Input label="ANTHROPIC API KEY" value={ak} onChange={setAk} placeholder="sk-ant-..." type="password" mono/>
+        <div style={{fontSize:11,color:C.t3,marginBottom:16}}>Get from <a href="https://console.anthropic.com" target="_blank" style={{color:C.bl}}>console.anthropic.com</a> → API Keys</div>
+        <Input label="GITHUB TOKEN" value={gh} onChange={setGh} placeholder="ghp_..." type="password" mono/>
+        <div style={{fontSize:11,color:C.t3,marginBottom:20}}>Needs <code>repo</code> scope. Get from GitHub → Settings → Developer settings → Tokens (classic)</div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn onClick={save} style={{flex:1}}>Save Keys</Btn>
+          <Btn onClick={onClose} outline style={{flex:1}}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── MCQ EDITOR ────────────────────────────────────────────────────
+const MCQCard=({mcq,idx,onChange})=>{
+  const tc=mcq.type==="Trap"?C.rd:mcq.type==="Amendment"?C.gr:C.bl;
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.b2}`,borderRadius:10,padding:16,marginBottom:10}}>
+      <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+        <span style={{fontFamily:"'Space Mono',mono",fontSize:11,color:C.t3}}>Q{idx+1}</span>
+        <Badge text={mcq.type?.toUpperCase()||"CONCEPT"} color={tc}/>
+        <select value={mcq.type||"Concept"} onChange={e=>onChange({...mcq,type:e.target.value})}
+          style={{marginLeft:"auto",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+          {["Trap","Concept","Amendment"].map(t=><option key={t}>{t}</option>)}
+        </select>
+        <select value={mcq.diff||1} onChange={e=>onChange({...mcq,diff:Number(e.target.value)})}
+          style={{background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+          {[1,2,3].map(d=><option key={d} value={d}>Diff {d}</option>)}
+        </select>
+      </div>
+      <TA value={mcq.q||""} onChange={v=>onChange({...mcq,q:v})} rows={2} placeholder="Question text..."/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+        {(mcq.opts||["","","",""]).map((opt,i)=>(
+          <div key={i} style={{display:"flex",gap:6,alignItems:"center"}}>
+            <button onClick={()=>onChange({...mcq,ans:i})}
+              style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${mcq.ans===i?C.gr:C.b3}`,background:mcq.ans===i?C.gr:"transparent",flexShrink:0,cursor:"pointer"}}/>
+            <input value={opt} onChange={e=>{const o=[...mcq.opts];o[i]=e.target.value;onChange({...mcq,opts:o});}}
+              placeholder={`Option ${["A","B","C","D"][i]}`}
+              style={{flex:1,background:C.s3,border:`1px solid ${mcq.ans===i?C.gr+"40":C.b2}`,color:C.t1,padding:"6px 10px",borderRadius:6,fontSize:12}}/>
+          </div>
+        ))}
+      </div>
+      <TA value={mcq.exp||""} onChange={v=>onChange({...mcq,exp:v})} rows={2} placeholder="Explanation — cite AS/Section number..."/>
+    </div>
+  );
+};
+
+// ── TRICKY EDITOR ─────────────────────────────────────────────────
+const TrickyCard=({item,onChange,onDelete})=>(
+  <div style={{background:C.s2,border:`1px solid ${C.rd}20`,borderRadius:10,padding:14,marginBottom:8}}>
+    <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+      <Badge text="TRAP POINT" color={C.rd}/>
+      <select value={item.priority||"High"} onChange={e=>onChange({...item,priority:e.target.value})}
+        style={{marginLeft:"auto",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+        {["Very High","High","Medium"].map(p=><option key={p}>{p}</option>)}
+      </select>
+      <button onClick={onDelete} style={{color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px"}}>×</button>
+    </div>
+    <input value={item.point||""} onChange={e=>onChange({...item,point:e.target.value})} placeholder="The specific trap point..."
+      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t1,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+    <input value={item.mistake||""} onChange={e=>onChange({...item,mistake:e.target.value})} placeholder="Common mistake students make..."
+      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+    <input value={item.why||""} onChange={e=>onChange({...item,why:e.target.value})} placeholder="Why ICAI tests this..."
+      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t3,padding:"8px 10px",borderRadius:6,fontSize:12}}/>
+  </div>
+);
+
+// ── AMENDMENT EDITOR ──────────────────────────────────────────────
+const AmendCard=({item,onChange,onDelete})=>(
+  <div style={{background:C.s2,border:`1px solid ${C.gr}20`,borderRadius:10,padding:14,marginBottom:8}}>
+    <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+      <Badge text="AMENDMENT" color={C.gr}/>
+      <select value={item.priority||"High"} onChange={e=>onChange({...item,priority:e.target.value})}
+        style={{marginLeft:"auto",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+        {["Very High","High","Medium"].map(p=><option key={p}>{p}</option>)}
+      </select>
+      <button onClick={onDelete} style={{color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px"}}>×</button>
+    </div>
+    <input value={item.topic||""} onChange={e=>onChange({...item,topic:e.target.value})} placeholder="Amendment name/topic..."
+      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t1,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+    <textarea value={item.what||""} onChange={e=>onChange({...item,what:e.target.value})} placeholder="What specifically changed..." rows={2}
+      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"8px 10px",borderRadius:6,fontSize:12,resize:"vertical"}}/>
+  </div>
+);
+
+// ── CASE EDITOR ───────────────────────────────────────────────────
+const CaseCard=({item,onChange,onDelete})=>(
+  <div style={{background:C.s2,border:`1px solid ${C.pu}20`,borderRadius:10,padding:14,marginBottom:8}}>
+    <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+      <Badge text="SCENARIO" color={C.pu}/>
+      <select value={item.diff||3} onChange={e=>onChange({...item,diff:Number(e.target.value)})}
+        style={{background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"3px 8px",borderRadius:5,fontSize:11}}>
+        {[2,3,4,5].map(d=><option key={d} value={d}>Diff {d}</option>)}
+      </select>
+      <input value={item.trap||""} onChange={e=>onChange({...item,trap:e.target.value})} placeholder="Trap type..."
+        style={{flex:1,background:C.s3,border:`1px solid ${C.b2}`,color:C.t3,padding:"4px 8px",borderRadius:5,fontSize:11}}/>
+      <button onClick={onDelete} style={{color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px"}}>×</button>
+    </div>
+    <TA value={item.scenario||""} onChange={v=>onChange({...item,scenario:v})} rows={3} placeholder="Detailed fact scenario with company name, dates, amounts..."/>
+    <input value={item.question||""} onChange={e=>onChange({...item,question:e.target.value})} placeholder="Question (e.g. Is this valid?)"
+      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t1,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+    <div style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+      <span style={{fontSize:12,color:C.t3}}>Answer:</span>
+      {["Yes","No"].map(v=><button key={v} onClick={()=>onChange({...item,answer:v})}
+        style={{padding:"4px 16px",borderRadius:6,border:`1px solid ${item.answer===v?(v==="Yes"?C.gr:C.rd):C.b2}`,background:item.answer===v?(v==="Yes"?`${C.gr}20`:`${C.rd}20`):"transparent",color:item.answer===v?(v==="Yes"?C.gr:C.rd):C.t3,cursor:"pointer",fontSize:12}}>{v}</button>)}
+    </div>
+    <textarea value={item.reasoning||""} onChange={e=>onChange({...item,reasoning:e.target.value})} placeholder="Reasoning with exact section reference..." rows={2}
+      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"8px 10px",borderRadius:6,fontSize:12,resize:"vertical"}}/>
+  </div>
+);
+
+// ── TREE EDITOR ───────────────────────────────────────────────────
+const TreeCard=({item,onChange,onDelete})=>(
+  <div style={{background:C.s2,border:`1px solid ${C.bl}20`,borderRadius:10,padding:14,marginBottom:8}}>
+    <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+      <Badge text="DECISION TREE" color={C.bl}/>
+      <button onClick={onDelete} style={{marginLeft:"auto",color:C.rd,cursor:"pointer",fontSize:16,padding:"0 4px"}}>×</button>
+    </div>
+    <input value={item.topic||""} onChange={e=>onChange({...item,topic:e.target.value})} placeholder="Topic (e.g. Charge Registration Validity)"
+      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t1,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+    <input value={item.logic||""} onChange={e=>onChange({...item,logic:e.target.value})} placeholder="Condition to check (e.g. Filed within 30 days?)"
+      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.bl,padding:"8px 10px",borderRadius:6,fontSize:12,marginBottom:6}}/>
+    <input value={item.outcome||""} onChange={e=>onChange({...item,outcome:e.target.value})} placeholder="Yes → outcome; No → outcome"
+      style={{width:"100%",background:C.s3,border:`1px solid ${C.b2}`,color:C.t2,padding:"8px 10px",borderRadius:6,fontSize:12}}/>
+  </div>
+);
+
+// ── MAIN APP ──────────────────────────────────────────────────────
+function App(){
+  const [authed,setAuthed]=useState(false);
+  const [showSettings,setShowSettings]=useState(false);
+  const [apiKey,setApiKey]=useState(()=>localStorage.getItem("caf_admin_ak")||"");
+  const [ghToken,setGhToken]=useState(()=>localStorage.getItem("caf_admin_gh")||"");
+
+  // Form state
+  const [subject,setSubject]=useState(SUBJECTS[0]);
+  const [chapterName,setChapterName]=useState("");
+  const [brief,setBrief]=useState("");
+  const [reference,setReference]=useState("");
+
+  // Generated content
+  const [generated,setGenerated]=useState(null);
+  const [activeTab,setActiveTab]=useState("mcqs");
+
+  // Status
+  const [status,setStatus]=useState("idle"); // idle|generating|saving|done|error
+  const [statusMsg,setStatusMsg]=useState("");
+
+  // Keep localStorage in sync
+  useEffect(()=>{localStorage.setItem("caf_admin_ak",apiKey);},[apiKey]);
+  useEffect(()=>{localStorage.setItem("caf_admin_gh",ghToken);},[ghToken]);
+
+  if(!authed)return <Login onLogin={()=>setAuthed(true)}/>;
+
+  const getNextId=async()=>{
+    if(!ghToken){
+      // Fallback ID if no token yet
+      const n=Math.floor(Math.random()*900)+100;
+      return `${subject.prefix}${n}`;
+    }
+    try{
+      const file=await ghGet(`src/data/${subject.file}`,ghToken);
+      const content=fromB64(file.content.replace(/\n/g,""));
+      const arr=JSON.parse(content.replace(`export const ${subject.varName} = `,"").trim());
+      return `${subject.prefix}${arr.length+1}`;
+    }catch{
+      return `${subject.prefix}1`;
+    }
+  };
+
+  const handleGenerate=async()=>{
+    if(!apiKey){setShowSettings(true);return;}
+    if(!chapterName.trim()){setStatusMsg("Enter a chapter name first.");setStatus("error");return;}
+    if(!brief.trim()){setStatusMsg("Enter a topic brief first.");setStatus("error");return;}
+    setStatus("generating");setStatusMsg("");setGenerated(null);
+    try{
+      const id=await getNextId();
+      const result=await generateWithAI(apiKey,subject,chapterName.trim(),brief.trim(),reference.trim(),id);
+      // Ensure IDs are set correctly
+      result.id=result.id||id;
+      result.name=result.name===("[Chapter Name]")?chapterName:result.name;
+      setGenerated(result);
+      setActiveTab("mcqs");
+      setStatus("idle");
+    }catch(e){
+      setStatus("error");
+      setStatusMsg(e.message);
+    }
+  };
+
+  const handleSave=async()=>{
+    if(!ghToken){setShowSettings(true);return;}
+    if(!generated){return;}
+    setStatus("saving");setStatusMsg("");
+    try{
+      const filePath=`src/data/${subject.file}`;
+      let existingArr=[];
+      let sha=null;
+      try{
+        const file=await ghGet(filePath,ghToken);
+        sha=file.sha;
+        const content=fromB64(file.content.replace(/\n/g,""));
+        existingArr=JSON.parse(content.replace(`export const ${subject.varName} = `,"").trim());
+        // Remove existing chapter with same ID if updating
+        existingArr=existingArr.filter(ch=>ch.id!==generated.id);
+      }catch{
+        // File doesn't exist yet (new subject) — start fresh
+      }
+      existingArr.push(generated);
+      const newContent=`export const ${subject.varName} = ${JSON.stringify(existingArr,null,2)}`;
+      await ghPut(filePath,newContent,sha,ghToken,`Add chapter: ${generated.name} (${generated.id})`);
+
+      // If it's a new subject file, also update constants.js
+      if(!["p1","p2"].includes(subject.id)){
+        await updateConstants(subject,ghToken);
+      }
+
+      setStatus("done");
+      setStatusMsg(`✓ Saved! "${generated.name}" pushed to GitHub. Netlify will redeploy automatically.`);
+    }catch(e){
+      setStatus("error");
+      setStatusMsg(`Save failed: ${e.message}`);
+    }
+  };
+
+  const updateConstants=async(subj,token)=>{
+    try{
+      const file=await ghGet("src/constants.js",token);
+      const sha=file.sha;
+      let content=fromB64(file.content.replace(/\n/g,""));
+      if(content.includes(subj.varName))return; // already imported
+      content=`import { ${subj.varName} } from './data/${subj.file}'\n`+content;
+      // Update the SUBJECTS array entry
+      content=content.replace(`chapters:[],`,`chapters:${subj.varName},`);
+      await ghPut("src/constants.js",content,sha,token,`Add import for ${subj.code}`);
+    }catch(e){console.warn("Could not update constants.js:",e.message);}
+  };
+
+  // Tab helpers
+  const tabs=[
+    {id:"mcqs",label:`MCQs ${generated?.mcqs?.length?`(${generated.mcqs.length})`:""}`},
+    {id:"tricky",label:`Tricky ${generated?.tricky?.length?`(${generated.tricky.length})`:""}`},
+    {id:"amendments",label:`Amend ${generated?.amendments?.length?`(${generated.amendments.length})`:""}`},
+    ...(subject.hasCase?[
+      {id:"cases",label:`Cases ${generated?.cases?.length?`(${generated.cases.length})`:""}`},
+      {id:"trees",label:`Trees ${generated?.trees?.length?`(${generated.trees.length})`:""}`},
+    ]:[]),
+    {id:"json",label:"JSON"},
+  ];
+
+  const updateMCQ=(i,val)=>{const m=[...generated.mcqs];m[i]=val;setGenerated({...generated,mcqs:m});};
+  const updateTricky=(i,val)=>{const t=[...generated.tricky];t[i]=val;setGenerated({...generated,tricky:t});};
+  const updateAmend=(i,val)=>{const a=[...generated.amendments];a[i]=val;setGenerated({...generated,amendments:a});};
+  const updateCase=(i,val)=>{const c=[...generated.cases];c[i]=val;setGenerated({...generated,cases:c});};
+  const updateTree=(i,val)=>{const t=[...generated.trees];t[i]=val;setGenerated({...generated,trees:t});};
+  const addItem=(key,template)=>setGenerated({...generated,[key]:[...(generated[key]||[]),template]});
+  const removeItem=(key,i)=>{const arr=[...(generated[key]||[])];arr.splice(i,1);setGenerated({...generated,[key]:arr});};
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg}}>
+      {/* Header */}
+      <div style={{padding:"12px 20px",borderBottom:`1px solid ${C.b1}`,display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,background:C.bg,zIndex:10}}>
+        <div style={{fontFamily:"'Syne',sans-serif",fontSize:20,fontWeight:800}}><span style={{color:C.am}}>CA</span><span style={{color:C.t1}}>feine</span></div>
+        <div style={{fontSize:10,color:C.am,letterSpacing:3,fontFamily:"'Space Mono',mono",fontWeight:700}}>ADMIN</div>
+        <div style={{flex:1}}/>
+        {status==="generating"&&<div style={{fontSize:12,color:C.am,display:"flex",alignItems:"center",gap:6}}>
+          <div style={{width:12,height:12,border:`2px solid ${C.am}`,borderTopColor:"transparent",borderRadius:"50%"}} className="spin"/>
+          Generating...
+        </div>}
+        {status==="saving"&&<div style={{fontSize:12,color:C.bl,display:"flex",alignItems:"center",gap:6}}>
+          <div style={{width:12,height:12,border:`2px solid ${C.bl}`,borderTopColor:"transparent",borderRadius:"50%"}} className="spin"/>
+          Saving to GitHub...
+        </div>}
+        <button onClick={()=>setShowSettings(true)} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${C.b2}`,color:C.t3,cursor:"pointer",fontSize:12}}>⚙ Keys</button>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"340px 1fr",minHeight:"calc(100vh - 49px)"}}>
+        {/* Left Panel */}
+        <div style={{borderRight:`1px solid ${C.b1}`,padding:20,overflowY:"auto"}}>
+          <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:14}}>GENERATE CHAPTER</div>
+
+          {/* Subject */}
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:6}}>SUBJECT</div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {SUBJECTS.map(s=>(
+                <button key={s.id} onClick={()=>setSubject(s)}
+                  style={{padding:"9px 12px",borderRadius:7,border:`1px solid ${subject.id===s.id?C.am:C.b2}`,background:subject.id===s.id?`${C.am}12`:"transparent",color:subject.id===s.id?C.am:C.t2,textAlign:"left",cursor:"pointer",fontSize:13,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span>{s.name}</span>
+                  <span style={{fontSize:10,fontFamily:"'Space Mono',mono",opacity:.6}}>{s.code}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Input label="CHAPTER NAME" value={chapterName} onChange={setChapterName} placeholder="e.g. Borrowing Costs (AS 16)"/>
+          <TA label="TOPIC BRIEF" value={brief} onChange={setBrief} rows={4} placeholder="List the key concepts, sub-topics, and common exam areas for this chapter..."/>
+          <TA label="REFERENCE MATERIAL (optional)" value={reference} onChange={setReference} rows={5} placeholder="Paste exact sections of the Act, worked examples from ICAI study material, or past paper questions. The AI will use these for accurate content."/>
+
+          {(status==="error"||status==="done")&&(
+            <div style={{padding:"10px 12px",borderRadius:7,background:status==="error"?`${C.rd}12`:`${C.gr}12`,border:`1px solid ${status==="error"?C.rd:C.gr}30`,fontSize:12,color:status==="error"?C.rd:C.gr,marginBottom:12,lineHeight:1.5}}>
+              {statusMsg}
+            </div>
+          )}
+
+          <button onClick={handleGenerate} disabled={status==="generating"||status==="saving"}
+            style={{width:"100%",padding:12,borderRadius:8,background:status==="generating"?C.s3:C.am,color:status==="generating"?C.t3:"#000",fontWeight:700,fontSize:14,cursor:status==="generating"?"default":"pointer",border:"none",marginBottom:8}}>
+            {status==="generating"?"Generating...":"⚡ Generate Chapter"}
+          </button>
+
+          {generated&&(
+            <button onClick={handleSave} disabled={status==="saving"}
+              style={{width:"100%",padding:12,borderRadius:8,background:status==="saving"?C.s3:C.gr,color:status==="saving"?C.t3:"#000",fontWeight:700,fontSize:14,cursor:status==="saving"?"default":"pointer",border:"none"}}>
+              {status==="saving"?"Saving...":"↑ Save to GitHub"}
+            </button>
+          )}
+
+          {!apiKey&&(
+            <div style={{marginTop:12,padding:"10px 12px",borderRadius:7,background:`${C.am}10`,border:`1px solid ${C.am}30`,fontSize:12,color:C.am}}>
+              ⚠ Add your Anthropic API key in ⚙ Keys to generate content.
+            </div>
+          )}
+        </div>
+
+        {/* Right Panel */}
+        <div style={{display:"flex",flexDirection:"column",overflowY:"auto"}}>
+          {!generated?(
+            <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,color:C.t3}}>
+              <div style={{fontSize:40}}>⚡</div>
+              <div style={{fontSize:14}}>Fill in the details and click Generate</div>
+              <div style={{fontSize:12,maxWidth:360,textAlign:"center",lineHeight:1.6}}>The AI will create ICAI-standard MCQs, tricky points, decision trees, and scenario cases.</div>
+            </div>
+          ):(
+            <div className="fade" style={{padding:20}}>
+              {/* Chapter header */}
+              <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:16}}>
+                <div style={{flex:1}}>
+                  <input value={generated.name||""} onChange={e=>setGenerated({...generated,name:e.target.value})}
+                    style={{width:"100%",background:"transparent",border:"none",color:C.t1,fontSize:18,fontFamily:"'Syne',sans-serif",fontWeight:700,padding:0}}/>
+                  <div style={{fontSize:11,color:C.t3,fontFamily:"'Space Mono',mono",marginTop:4}}>{generated.id} · {subject.name}</div>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div style={{display:"flex",gap:2,marginBottom:16,borderBottom:`1px solid ${C.b1}`,paddingBottom:0}}>
+                {tabs.map(t=>(
+                  <button key={t.id} onClick={()=>setActiveTab(t.id)}
+                    style={{padding:"8px 14px",borderRadius:"6px 6px 0 0",border:"none",background:activeTab===t.id?C.s2:"transparent",color:activeTab===t.id?C.t1:C.t3,cursor:"pointer",fontSize:12,fontWeight:activeTab===t.id?600:400,borderBottom:activeTab===t.id?`2px solid ${C.am}`:"2px solid transparent"}}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab content */}
+              {activeTab==="mcqs"&&(
+                <div>
+                  {(generated.mcqs||[]).map((mcq,i)=><MCQCard key={i} mcq={mcq} idx={i} onChange={v=>updateMCQ(i,v)}/>)}
+                  <Btn onClick={()=>addItem("mcqs",{id:`${generated.id}.Q${(generated.mcqs?.length||0)+1}`,q:"",opts:["","","",""],ans:0,exp:"",type:"Concept",diff:1})} outline style={{marginTop:4}}>+ Add MCQ</Btn>
+                </div>
+              )}
+
+              {activeTab==="tricky"&&(
+                <div>
+                  {(generated.tricky||[]).map((t,i)=><TrickyCard key={i} item={t} onChange={v=>updateTricky(i,v)} onDelete={()=>removeItem("tricky",i)}/>)}
+                  <Btn onClick={()=>addItem("tricky",{id:`${generated.id}.${(generated.tricky?.length||0)+1}`,point:"",mistake:"",why:"",priority:"High"})} outline>+ Add Tricky Point</Btn>
+                </div>
+              )}
+
+              {activeTab==="amendments"&&(
+                <div>
+                  {(generated.amendments||[]).map((a,i)=><AmendCard key={i} item={a} onChange={v=>updateAmend(i,v)} onDelete={()=>removeItem("amendments",i)}/>)}
+                  <Btn onClick={()=>addItem("amendments",{id:`${generated.id}.A${(generated.amendments?.length||0)+1}`,topic:"",what:"",relevance:"High",priority:"High"})} outline>+ Add Amendment</Btn>
+                </div>
+              )}
+
+              {activeTab==="cases"&&subject.hasCase&&(
+                <div>
+                  {(generated.cases||[]).map((c,i)=><CaseCard key={i} item={c} onChange={v=>updateCase(i,v)} onDelete={()=>removeItem("cases",i)}/>)}
+                  <Btn onClick={()=>addItem("cases",{id:`${generated.id}.C${(generated.cases?.length||0)+1}`,scenario:"",question:"",answer:"Yes",reasoning:"",trap:"",diff:3})} outline>+ Add Case</Btn>
+                </div>
+              )}
+
+              {activeTab==="trees"&&subject.hasCase&&(
+                <div>
+                  {(generated.trees||[]).map((t,i)=><TreeCard key={i} item={t} onChange={v=>updateTree(i,v)} onDelete={()=>removeItem("trees",i)}/>)}
+                  <Btn onClick={()=>addItem("trees",{id:`${generated.id}.DT${(generated.trees?.length||0)+1}`,topic:"",logic:"",outcome:"Yes → ; No → "})} outline>+ Add Decision Tree</Btn>
+                </div>
+              )}
+
+              {activeTab==="json"&&(
+                <div>
+                  <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+                    <Btn onClick={()=>navigator.clipboard.writeText(JSON.stringify(generated,null,2))} outline style={{fontSize:11,padding:"6px 12px"}}>Copy JSON</Btn>
+                  </div>
+                  <pre style={{background:C.s2,border:`1px solid ${C.b2}`,borderRadius:8,padding:16,fontSize:11,color:C.t2,overflowX:"auto",lineHeight:1.6,fontFamily:"'Space Mono',mono",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                    {JSON.stringify(generated,null,2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showSettings&&<Settings onClose={()=>setShowSettings(false)} apiKey={apiKey} setApiKey={setApiKey} ghToken={ghToken} setGhToken={setGhToken}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
