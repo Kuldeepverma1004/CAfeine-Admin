@@ -67,15 +67,18 @@ const ghPut=async(path,content,sha,token,message)=>{
 };
 
 // ── ANTHROPIC API ─────────────────────────────────────────────────
-const generateWithAI=async(apiKey,subject,chapterName,brief,reference,chapterId)=>{
+const generateWithAI=async(apiKey,subject,chapterName,pdfBase64,chapterId)=>{
   const isP2=subject.hasCase;
   const schema=isP2?P2_SCHEMA(chapterId):P1_SCHEMA(chapterId);
   const systemPrompt=isP2?P2_SYSTEM:P1_SYSTEM;
-  const userPrompt=buildUserPrompt(subject,chapterName,brief,reference,schema);
+  const userPrompt=buildUserPrompt(subject,chapterName,schema);
   const r=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
     headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:8000,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
+    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:8000,system:systemPrompt,messages:[{role:"user",content:[
+      {type:"document",source:{type:"base64",media_type:"application/pdf",data:pdfBase64}},
+      {type:"text",text:userPrompt}
+    ]}]})
   });
   if(!r.ok){const e=await r.json();throw new Error(e.error?.message||`API error ${r.status}`);}
   const data=await r.json();
@@ -114,12 +117,12 @@ When given a PDF of ICAI study material:
 Return ONLY valid JSON. No markdown. No explanation.
 Keys: dangerZones, formulaGuide, flashcards, practiceProblems, amendments, caseMCQs`;
 
-const buildUserPrompt=(subject,chapterName,brief,reference,schema)=>`
+const buildUserPrompt=(subject,chapterName,schema)=>`
 Create complete ICAI-standard chapter content for:
 Subject: ${subject.name} (${subject.code})
 Chapter: ${chapterName}
-Topic Brief: ${brief}
-${reference?`Reference Material (use exact sections/provisions/amounts from this):\n${reference}`:""}
+
+The PDF above is the ICAI study material for this chapter. Use it as the primary source.
 
 Output JSON must match this exact schema (use these IDs and structure):
 ${JSON.stringify(schema,null,2)}
@@ -482,8 +485,9 @@ function App(){
   // Form state
   const [subject,setSubject]=useState(SUBJECTS[0]);
   const [chapterName,setChapterName]=useState("");
-  const [brief,setBrief]=useState("");
-  const [reference,setReference]=useState("");
+  const [pdfBase64,setPdfBase64]=useState("");
+  const [pdfFileName,setPdfFileName]=useState("");
+  const pdfInputRef=useRef();
 
   // Generated content
   const [generated,setGenerated]=useState(null);
@@ -518,11 +522,11 @@ function App(){
   const handleGenerate=async()=>{
     if(!apiKey){setShowSettings(true);return;}
     if(!chapterName.trim()){setStatusMsg("Enter a chapter name first.");setStatus("error");return;}
-    if(!brief.trim()){setStatusMsg("Enter a topic brief first.");setStatus("error");return;}
+    if(!pdfBase64){setStatusMsg("Upload a chapter PDF first.");setStatus("error");return;}
     setStatus("generating");setStatusMsg("");setGenerated(null);
     try{
       const id=await getNextId();
-      const result=await generateWithAI(apiKey,subject,chapterName.trim(),brief.trim(),reference.trim(),id);
+      const result=await generateWithAI(apiKey,subject,chapterName.trim(),pdfBase64,id);
       // Ensure IDs are set correctly
       result.id=result.id||id;
       result.name=result.name===("[Chapter Name]")?chapterName:result.name;
@@ -641,8 +645,35 @@ function App(){
           </div>
 
           <Input label="CHAPTER NAME" value={chapterName} onChange={setChapterName} placeholder="e.g. Borrowing Costs (AS 16)"/>
-          <TA label="TOPIC BRIEF" value={brief} onChange={setBrief} rows={4} placeholder="List the key concepts, sub-topics, and common exam areas for this chapter..."/>
-          <TA label="REFERENCE MATERIAL (optional)" value={reference} onChange={setReference} rows={5} placeholder="Paste exact sections of the Act, worked examples from ICAI study material, or past paper questions. The AI will use these for accurate content."/>
+
+          {/* PDF Upload */}
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:6}}>CHAPTER PDF</div>
+            <input ref={pdfInputRef} type="file" accept="application/pdf" style={{display:"none"}} onChange={e=>{
+              const file=e.target.files[0];
+              if(!file)return;
+              setPdfFileName(file.name);
+              const reader=new FileReader();
+              reader.onload=ev=>{
+                const b64=ev.target.result.split(",")[1];
+                setPdfBase64(b64);
+              };
+              reader.readAsDataURL(file);
+            }}/>
+            {pdfBase64?(
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:7,border:`1px solid ${C.gr}40`,background:`${C.gr}08`}}>
+                <span style={{fontSize:18}}>📄</span>
+                <span style={{flex:1,fontSize:12,color:C.gr,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pdfFileName}</span>
+                <button onClick={()=>{setPdfBase64("");setPdfFileName("");if(pdfInputRef.current)pdfInputRef.current.value="";}}
+                  style={{color:C.t3,cursor:"pointer",fontSize:14,padding:"0 4px",flexShrink:0,background:"none",border:"none"}}>×</button>
+              </div>
+            ):(
+              <button onClick={()=>pdfInputRef.current.click()}
+                style={{width:"100%",padding:"14px 12px",borderRadius:7,border:`2px dashed ${C.b2}`,background:"transparent",color:C.t3,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                <span style={{fontSize:18}}>📤</span> Upload PDF
+              </button>
+            )}
+          </div>
 
           {(status==="error"||status==="done")&&(
             <div style={{padding:"10px 12px",borderRadius:7,background:status==="error"?`${C.rd}12`:`${C.gr}12`,border:`1px solid ${status==="error"?C.rd:C.gr}30`,fontSize:12,color:status==="error"?C.rd:C.gr,marginBottom:12,lineHeight:1.5}}>
