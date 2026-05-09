@@ -72,17 +72,28 @@ const generateWithAI=async(apiKey,subject,chapterName,pdfBase64,chapterId)=>{
   const schema=isP2?P2_SCHEMA(chapterId):P1_SCHEMA(chapterId);
   const systemPrompt=isP2?P2_SYSTEM:P1_SYSTEM;
   const userPrompt=buildUserPrompt(subject,chapterName,schema);
-  const r=await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST",
-    headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:8000,system:systemPrompt,messages:[{role:"user",content:[
-      {type:"document",source:{type:"base64",media_type:"application/pdf",data:pdfBase64}},
-      {type:"text",text:userPrompt}
-    ]}]})
-  });
-  if(!r.ok){const e=await r.json();throw new Error(e.error?.message||`API error ${r.status}`);}
+  let r;
+  try{
+    r=await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+      body:JSON.stringify({model:"claude-opus-4-5",max_tokens:8000,system:systemPrompt,messages:[{role:"user",content:[
+        {type:"document",source:{type:"base64",media_type:"application/pdf",data:pdfBase64}},
+        {type:"text",text:userPrompt}
+      ]}]})
+    });
+  }catch(fetchErr){
+    throw new Error("Network error — check your connection and try again.");
+  }
+  if(!r.ok){
+    let errMsg=`Request failed (${r.status})`;
+    try{const e=await r.json();if(e.error?.message)errMsg=e.error.message;}catch{}
+    throw new Error(errMsg);
+  }
   const data=await r.json();
-  const text=data.content[0].text.trim();
+  const block=data.content?.find(b=>b.type==="text");
+  if(!block?.text)throw new Error("No text in API response. Try again.");
+  const text=block.text.trim();
   const jsonMatch=text.match(/\{[\s\S]*\}/);
   if(!jsonMatch)throw new Error("AI did not return valid JSON. Try again.");
   return JSON.parse(jsonMatch[0]);
