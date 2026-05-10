@@ -112,7 +112,13 @@ When given a PDF of ICAI study material:
 5. Identify amendments using your own knowledge as primary source, PDF as secondary reference only
 6. Generate case scenario MCQs where all options are computed values
 Return ONLY valid JSON. No markdown. No explanation.
-Keys: dangerZones, formulaGuide, flashcards, practiceProblems, amendments, caseMCQs`;
+Keys: dangerZones, formulaGuide, flashcards, practiceProblems, amendments, caseMCQs
+CRITICAL FOR EXPLANATIONS:
+Never show calculation working-in-progress in explanations.
+Never use phrases like "Let me recalculate", "Actually", "Recomputing", "Wait - recalculating", "Nope", or any self-correction language.
+Resolve all calculations internally before writing the explanation.
+Explanations must state only the final correct reasoning confidently in 2-4 sentences citing the exact AS/Section.
+If uncertain about a computed answer, use a Concept-type question instead of a Trap-type computation question.`;
 
 const P2_SYSTEM=`You are a senior CA Inter exam content creator for ICAI.
 You have deep knowledge of all Accounting Standards, Companies Act 2013,
@@ -126,7 +132,13 @@ When given a PDF of ICAI study material:
 5. Identify amendments using your own knowledge as primary source, PDF as secondary reference only
 6. Generate case scenario MCQs where all options are computed values
 Return ONLY valid JSON. No markdown. No explanation.
-Keys: dangerZones, formulaGuide, flashcards, practiceProblems, amendments, caseMCQs`;
+Keys: dangerZones, formulaGuide, flashcards, practiceProblems, amendments, caseMCQs
+CRITICAL FOR EXPLANATIONS:
+Never show calculation working-in-progress in explanations.
+Never use phrases like "Let me recalculate", "Actually", "Recomputing", "Wait - recalculating", "Nope", or any self-correction language.
+Resolve all calculations internally before writing the explanation.
+Explanations must state only the final correct reasoning confidently in 2-4 sentences citing the exact AS/Section.
+If uncertain about a computed answer, use a Concept-type question instead of a Trap-type computation question.`;
 
 const buildUserPrompt=(subject,chapterName,schema)=>`
 Create complete ICAI-standard chapter content for:
@@ -352,7 +364,8 @@ const CaseMCQsEditor=({data,onChange})=>{
         QUESTIONS ({d.questions?.length||0})
       </div>
       {(d.questions||[]).map((mcq,i)=>(
-        <div key={i} style={{background:C.s2,border:`1px solid ${C.am}20`,borderRadius:10,padding:14,marginBottom:10}}>
+        <div key={i} style={{background:C.s2,border:`1px solid ${mcq._warning?C.rd:C.am+"20"}`,borderRadius:10,padding:14,marginBottom:10}}>
+          {mcq._warning&&<div style={{background:`${C.rd}18`,border:`1px solid ${C.rd}40`,borderRadius:6,padding:"7px 10px",marginBottom:10,fontSize:11,color:C.rd,fontWeight:600}}>⚠ AI self-corrected here — review this explanation before saving</div>}
           <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
             <span style={{fontFamily:"'Space Mono',mono",fontSize:11,color:C.t3}}>Q{i+1}</span>
             <select value={mcq.type||"Trap"} onChange={e=>updateQ(i,{...mcq,type:e.target.value})}
@@ -436,7 +449,8 @@ const Settings=({onClose,apiKey,setApiKey,ghToken,setGhToken})=>{
 const MCQCard=({mcq,idx,onChange})=>{
   const tc=mcq.type==="Trap"?C.rd:mcq.type==="Amendment"?C.gr:C.bl;
   return(
-    <div style={{background:C.s2,border:`1px solid ${C.b2}`,borderRadius:10,padding:16,marginBottom:10}}>
+    <div style={{background:C.s2,border:`1px solid ${mcq._warning?C.rd:C.b2}`,borderRadius:10,padding:16,marginBottom:10}}>
+      {mcq._warning&&<div style={{background:`${C.rd}18`,border:`1px solid ${C.rd}40`,borderRadius:6,padding:"7px 10px",marginBottom:10,fontSize:11,color:C.rd,fontWeight:600}}>⚠ AI self-corrected here — review this explanation before saving</div>}
       <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
         <span style={{fontFamily:"'Space Mono',mono",fontSize:11,color:C.t3}}>Q{idx+1}</span>
         <Badge text={mcq.type?.toUpperCase()||"CONCEPT"} color={tc}/>
@@ -734,6 +748,11 @@ function App(){
       if(!Array.isArray(result.amendments))result.amendments=[];
       if(!Array.isArray(result.cases))result.cases=[];
       if(!Array.isArray(result.trees))result.trees=[];
+      // Validate explanations for AI self-correction language
+      const BAD_PHRASES=["let me recalculate","actually,","wait -","recomputing","nope","let me check","recalculating","wait,","hmm,","let me re","actually i","actually the","let me","re-calculating"];
+      const flagMCQ=mcq=>{const low=(mcq.exp||"").toLowerCase();return BAD_PHRASES.some(p=>low.includes(p))?{...mcq,_warning:true}:mcq;};
+      if(Array.isArray(result.mcqs))result.mcqs=result.mcqs.map(flagMCQ);
+      if(Array.isArray(result.caseMCQs?.questions))result.caseMCQs={...result.caseMCQs,questions:result.caseMCQs.questions.map(flagMCQ)};
       setGenerated(result);
       setActiveTab("dangerZones");
       setStatus("idle");
@@ -771,7 +790,7 @@ function App(){
       }
 
       setStatus("done");
-      setStatusMsg(`✓ Saved! "${generated.name}" pushed to GitHub. Netlify will redeploy automatically.`);
+      setStatusMsg(`✓ Saved! "${generated.name}" pushed to GitHub. Vercel will redeploy automatically.`);
     }catch(e){
       setStatus("error");
       setStatusMsg(`Save failed: ${e.message}`);
