@@ -67,11 +67,11 @@ const ghPut=async(path,content,sha,token,message)=>{
 };
 
 // ── ANTHROPIC API ─────────────────────────────────────────────────
-const generateWithAI=async(apiKey,subject,chapterName,pdfBase64,chapterId)=>{
+const generateWithAI=async(apiKey,subject,chapterName,chapterNum,pdfBase64,chapterId)=>{
   const isP2=subject.hasCase;
   const schema=isP2?P2_SCHEMA(chapterId):P1_SCHEMA(chapterId);
   const systemPrompt=isP2?P2_SYSTEM:P1_SYSTEM;
-  const userPrompt=buildUserPrompt(subject,chapterName,schema);
+  const userPrompt=buildUserPrompt(subject,chapterName,chapterNum,schema);
   let r;
   try{
     r=await fetch("https://api.anthropic.com/v1/messages",{
@@ -85,6 +85,72 @@ const generateWithAI=async(apiKey,subject,chapterName,pdfBase64,chapterId)=>{
   }catch(fetchErr){
     throw new Error("Network error — check your connection and try again.");
   }
+  if(!r.ok){
+    let errMsg=`Request failed (${r.status})`;
+    try{const e=await r.json();if(e.error?.message){const m=e.error.message;errMsg=m.toLowerCase().includes("100 pdf")||m.includes("pdf.source.base64")?"PDF has too many pages (API limit: 100). Upload a single chapter section.":m;}}catch{}
+    throw new Error(errMsg);
+  }
+  const data=await r.json();
+  const block=data.content?.find(b=>b.type==="text");
+  if(!block?.text)throw new Error("No text in API response. Try again.");
+  const text=block.text.trim();
+  const jsonMatch=text.match(/\{[\s\S]*\}/);
+  if(!jsonMatch)throw new Error("AI did not return valid JSON. Try again.");
+  return JSON.parse(jsonMatch[0]);
+};
+
+// ── CONTINUATION API CALL ─────────────────────────────────────────
+const buildContinuePrompt=(subject,chapterName,chapterNum,existing)=>{
+  const cnt={dangerZones:(existing.dangerZones||[]).length,formulaGuide:(existing.formulaGuide||[]).length,flashcards:(existing.flashcards||[]).length,practiceProblems:(existing.practiceProblems||[]).length,amendments:(existing.amendments||[]).length,mcqs:(existing.mcqs||[]).length,tricky:(existing.tricky||[]).length,cases:(existing.cases||[]).length,trees:(existing.trees||[]).length};
+  const summary={
+    dangerZones:(existing.dangerZones||[]).map(d=>d.point?.slice(0,100)),
+    formulaGuide:(existing.formulaGuide||[]).map(t=>t.topic),
+    flashcards:(existing.flashcards||[]).map(f=>f.front),
+    practiceProblems:(existing.practiceProblems||[]).map(p=>p.title),
+    amendments:(existing.amendments||[]).map(a=>a.topic),
+    mcqs:(existing.mcqs||[]).map(q=>q.q?.slice(0,80)),
+    tricky:(existing.tricky||[]).map(t=>t.point?.slice(0,80)),
+  };
+  return `CONTINUATION generation for an existing chapter.
+Subject: ${subject.name} (${subject.code})
+This is Chapter ${chapterNum} of ${subject.name}: ${chapterName}
+Chapter ID prefix: ${existing.id}
+
+EXISTING CONTENT — DO NOT DUPLICATE ANY OF THESE:
+${JSON.stringify(summary,null,2)}
+
+The PDF above contains ADDITIONAL pages for this same chapter not covered above.
+Generate ONLY new content covering topics not already listed.
+
+Start new IDs from where existing ones leave off:
+dangerZones → DZ${cnt.dangerZones+1}, DZ${cnt.dangerZones+2}...
+formulaGuide → FG${cnt.formulaGuide+1}...
+flashcards → FC${cnt.flashcards+1}, FC${cnt.flashcards+2}...
+practiceProblems → PP${cnt.practiceProblems+1}...
+amendments → A${cnt.amendments+1}...
+mcqs → Q${cnt.mcqs+1}, Q${cnt.mcqs+2}...
+tricky → ${cnt.tricky+1}, ${cnt.tricky+2}...
+All IDs must use prefix "${existing.id}".
+
+For caseMCQs: generate a NEW scenario based on the new PDF content with 2-3 new questions.
+You may return empty arrays for types where the new PDF adds nothing new.
+Return ONLY valid JSON. Keys: dangerZones, formulaGuide, flashcards, practiceProblems, amendments, caseMCQs, mcqs, tricky.
+CRITICAL FOR EXPLANATIONS: State only final correct reasoning confidently. No self-correction language.`;
+};
+
+const continueWithAI=async(apiKey,subject,continuePrompt,newPdfBase64)=>{
+  const systemPrompt=subject.hasCase?P2_SYSTEM:P1_SYSTEM;
+  let r;
+  try{
+    r=await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+      body:JSON.stringify({model:"claude-opus-4-5",max_tokens:16000,system:systemPrompt,messages:[{role:"user",content:[
+        {type:"document",source:{type:"base64",media_type:"application/pdf",data:newPdfBase64}},
+        {type:"text",text:continuePrompt}
+      ]}]})
+    });
+  }catch(fetchErr){throw new Error("Network error — check your connection and try again.");}
   if(!r.ok){
     let errMsg=`Request failed (${r.status})`;
     try{const e=await r.json();if(e.error?.message){const m=e.error.message;errMsg=m.toLowerCase().includes("100 pdf")||m.includes("pdf.source.base64")?"PDF has too many pages (API limit: 100). Upload a single chapter section.":m;}}catch{}
@@ -140,10 +206,10 @@ Resolve all calculations internally before writing the explanation.
 Explanations must state only the final correct reasoning confidently in 2-4 sentences citing the exact AS/Section.
 If uncertain about a computed answer, use a Concept-type question instead of a Trap-type computation question.`;
 
-const buildUserPrompt=(subject,chapterName,schema)=>`
+const buildUserPrompt=(subject,chapterName,chapterNum,schema)=>`
 Create complete ICAI-standard chapter content for:
 Subject: ${subject.name} (${subject.code})
-Chapter: ${chapterName}
+This is Chapter ${chapterNum} of ${subject.name}: ${chapterName}
 
 The PDF above is the ICAI study material for this chapter. Use it as the primary source.
 
@@ -689,12 +755,21 @@ function App(){
 
   // Form state
   const [subject,setSubject]=useState(SUBJECTS[0]);
+  const [chapterNum,setChapterNum]=useState("");
   const [chapterName,setChapterName]=useState("");
   const [pdfBase64,setPdfBase64]=useState("");
   const [pdfFileName,setPdfFileName]=useState("");
   const [pdfPageCount,setPdfPageCount]=useState(null);
   const [pdfPageErr,setPdfPageErr]=useState("");
   const pdfInputRef=useRef();
+
+  // Continue-mode state
+  const [showContinue,setShowContinue]=useState(false);
+  const [contPdfBase64,setContPdfBase64]=useState("");
+  const [contPdfFileName,setContPdfFileName]=useState("");
+  const [contPdfPageCount,setContPdfPageCount]=useState(null);
+  const [contPdfPageErr,setContPdfPageErr]=useState("");
+  const contPdfInputRef=useRef();
 
   // Generated content
   const [generated,setGenerated]=useState(null);
@@ -710,31 +785,17 @@ function App(){
 
   if(!authed)return <Login onLogin={()=>setAuthed(true)}/>;
 
-  const getNextId=async()=>{
-    if(!ghToken){
-      // Fallback ID if no token yet
-      const n=Math.floor(Math.random()*900)+100;
-      return `${subject.prefix}${n}`;
-    }
-    try{
-      const file=await ghGet(`src/data/${subject.file}`,ghToken);
-      const content=fromB64(file.content.replace(/\n/g,""));
-      const arr=JSON.parse(content.replace(`export const ${subject.varName} = `,"").trim());
-      return `${subject.prefix}${arr.length+1}`;
-    }catch{
-      return `${subject.prefix}1`;
-    }
-  };
+  const buildChapterId=()=>`${subject.prefix}${chapterNum}`;
 
   const handleGenerate=async()=>{
     if(!apiKey){setShowSettings(true);return;}
+    if(!chapterNum.toString().trim()){setStatusMsg("Enter chapter number first.");setStatus("error");return;}
     if(!chapterName.trim()){setStatusMsg("Enter a chapter name first.");setStatus("error");return;}
     if(!pdfBase64){setStatusMsg("Upload a chapter PDF first.");setStatus("error");return;}
     setStatus("generating");setStatusMsg("");setGenerated(null);
     try{
-      const id=await getNextId();
-      const result=await generateWithAI(apiKey,subject,chapterName.trim(),pdfBase64,id);
-      // Ensure IDs are set correctly
+      const id=buildChapterId();
+      const result=await generateWithAI(apiKey,subject,chapterName.trim(),chapterNum,pdfBase64,id);
       result.id=result.id||id;
       result.name=result.name===("[Chapter Name]")?chapterName:result.name;
       if(!Array.isArray(result.dangerZones))result.dangerZones=[];
@@ -748,7 +809,6 @@ function App(){
       if(!Array.isArray(result.amendments))result.amendments=[];
       if(!Array.isArray(result.cases))result.cases=[];
       if(!Array.isArray(result.trees))result.trees=[];
-      // Validate explanations for AI self-correction language
       const BAD_PHRASES=["let me recalculate","actually,","wait -","recomputing","nope","let me check","recalculating","wait,","hmm,","let me re","actually i","actually the","let me","re-calculating"];
       const flagMCQ=mcq=>{const low=(mcq.exp||"").toLowerCase();return BAD_PHRASES.some(p=>low.includes(p))?{...mcq,_warning:true}:mcq;};
       if(Array.isArray(result.mcqs))result.mcqs=result.mcqs.map(flagMCQ);
@@ -756,6 +816,45 @@ function App(){
       setGenerated(result);
       setActiveTab("dangerZones");
       setStatus("idle");
+    }catch(e){
+      setStatus("error");
+      setStatusMsg(e.message);
+    }
+  };
+
+  const handleContinue=async()=>{
+    if(!apiKey){setShowSettings(true);return;}
+    if(!contPdfBase64){setStatusMsg("Upload a second PDF first.");setStatus("error");return;}
+    if(!generated){return;}
+    setStatus("generating");setStatusMsg("");
+    try{
+      const prompt=buildContinuePrompt(subject,chapterName.trim(),chapterNum,generated);
+      const addition=await continueWithAI(apiKey,subject,prompt,contPdfBase64);
+      // Merge arrays
+      const arrKeys=["dangerZones","formulaGuide","flashcards","practiceProblems","amendments","mcqs","tricky","cases","trees"];
+      const merged={...generated};
+      for(const key of arrKeys){
+        const newItems=Array.isArray(addition[key])?addition[key]:[];
+        merged[key]=[...(merged[key]||[]),...newItems];
+      }
+      // Merge caseMCQs — append questions
+      if(addition.caseMCQs?.questions?.length){
+        merged.caseMCQs={
+          scenario:merged.caseMCQs?.scenario||addition.caseMCQs.scenario||"",
+          questions:[...(merged.caseMCQs?.questions||[]),...addition.caseMCQs.questions]
+        };
+      }
+      // Flag bad explanations in newly added MCQs
+      const BAD_PHRASES=["let me recalculate","actually,","wait -","recomputing","nope","let me check","recalculating","wait,","hmm,","let me re","actually i","actually the","let me","re-calculating"];
+      const flagMCQ=mcq=>{const low=(mcq.exp||"").toLowerCase();return BAD_PHRASES.some(p=>low.includes(p))?{...mcq,_warning:true}:mcq;};
+      merged.mcqs=merged.mcqs.map(flagMCQ);
+      merged.caseMCQs={...merged.caseMCQs,questions:merged.caseMCQs.questions.map(flagMCQ)};
+      setGenerated(merged);
+      setStatus("done");
+      setStatusMsg(`✓ Added content from ${contPdfFileName}. Review tabs then save.`);
+      setContPdfBase64("");setContPdfFileName("");setContPdfPageCount(null);
+      setShowContinue(false);
+      if(contPdfInputRef.current)contPdfInputRef.current.value="";
     }catch(e){
       setStatus("error");
       setStatusMsg(e.message);
@@ -873,6 +972,13 @@ function App(){
             </div>
           </div>
 
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:C.t3,letterSpacing:2,fontFamily:"'Space Mono',mono",fontWeight:700,marginBottom:6}}>CHAPTER NUMBER</div>
+            <input type="number" min="1" value={chapterNum} onChange={e=>setChapterNum(e.target.value)} placeholder="e.g. 1"
+              style={{width:"100%",background:C.s2,border:`1px solid ${C.b2}`,color:C.t1,padding:"10px 12px",borderRadius:7,fontSize:13}}/>
+            {chapterNum&&<div style={{fontSize:10,color:C.t3,marginTop:4,fontFamily:"'Space Mono',mono"}}>ID will be: <span style={{color:C.am}}>{subject.prefix}{chapterNum}</span></div>}
+          </div>
+
           <Input label="CHAPTER NAME" value={chapterName} onChange={setChapterName} placeholder="e.g. Borrowing Costs (AS 16)"/>
 
           {/* PDF Upload */}
@@ -938,6 +1044,50 @@ function App(){
               style={{width:"100%",padding:12,borderRadius:8,background:status==="saving"?C.s3:C.gr,color:status==="saving"?C.t3:"#000",fontWeight:700,fontSize:14,cursor:status==="saving"?"default":"pointer",border:"none"}}>
               {status==="saving"?"Saving...":"↑ Save to GitHub"}
             </button>
+          )}
+
+          {generated&&(
+            <div style={{marginTop:10}}>
+              <button onClick={()=>setShowContinue(!showContinue)}
+                style={{width:"100%",padding:"9px 12px",borderRadius:7,border:`1px solid ${showContinue?C.pu:C.b2}`,background:showContinue?`${C.pu}10`:"transparent",color:showContinue?C.pu:C.t3,cursor:"pointer",fontSize:12,fontWeight:600,textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span>+ Add more content from another PDF</span>
+                <span style={{fontSize:10}}>{showContinue?"▲":"▼"}</span>
+              </button>
+              {showContinue&&(
+                <div style={{marginTop:8,padding:12,background:C.s2,borderRadius:8,border:`1px solid ${C.b2}`}}>
+                  <div style={{fontSize:11,color:C.t3,marginBottom:10,lineHeight:1.5}}>Upload a second PDF with more pages from this chapter. The AI will generate only new content and merge it with what's already here.</div>
+                  <input ref={contPdfInputRef} type="file" accept="application/pdf" style={{display:"none"}} onChange={e=>{
+                    const file=e.target.files[0];
+                    if(!file)return;
+                    const countPages=async()=>{try{const buf=await file.arrayBuffer();const txt=new TextDecoder("latin1").decode(new Uint8Array(buf));const m=txt.match(/\/Type\s*\/Page[^s]/g);return m?m.length:null;}catch{return null;}};
+                    countPages().then(pages=>{
+                      if(pages&&pages>100){setContPdfPageErr(`${pages} pages — limit is 100.`);setContPdfBase64("");setContPdfFileName("");setContPdfPageCount(null);if(contPdfInputRef.current)contPdfInputRef.current.value="";return;}
+                      setContPdfPageErr("");setContPdfFileName(file.name);setContPdfPageCount(pages);
+                      const reader=new FileReader();
+                      reader.onload=ev=>{setContPdfBase64(ev.target.result.split(",")[1]);};
+                      reader.readAsDataURL(file);
+                    });
+                  }}/>
+                  {contPdfBase64?(
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:6,border:`1px solid ${C.pu}40`,background:`${C.pu}08`,marginBottom:8}}>
+                      <span style={{fontSize:16}}>📄</span>
+                      <span style={{flex:1,fontSize:11,color:C.pu,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{contPdfFileName}{contPdfPageCount?` · ${contPdfPageCount}p`:""}</span>
+                      <button onClick={()=>{setContPdfBase64("");setContPdfFileName("");setContPdfPageCount(null);if(contPdfInputRef.current)contPdfInputRef.current.value="";}} style={{color:C.t3,cursor:"pointer",fontSize:13,padding:"0 3px",background:"none",border:"none"}}>×</button>
+                    </div>
+                  ):(
+                    <button onClick={()=>contPdfInputRef.current.click()}
+                      style={{width:"100%",padding:"10px 12px",borderRadius:6,border:`2px dashed ${contPdfPageErr?C.rd:C.pu}40`,background:"transparent",color:C.t3,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:6}}>
+                      <span style={{fontSize:16}}>📤</span> Upload second PDF
+                    </button>
+                  )}
+                  {contPdfPageErr&&<div style={{fontSize:11,color:C.rd,marginBottom:6}}>{contPdfPageErr}</div>}
+                  <button onClick={handleContinue} disabled={!contPdfBase64||status==="generating"}
+                    style={{width:"100%",padding:"10px 12px",borderRadius:7,background:(!contPdfBase64||status==="generating")?C.s3:C.pu,color:(!contPdfBase64||status==="generating")?C.t3:"#fff",fontWeight:700,fontSize:13,cursor:(!contPdfBase64||status==="generating")?"default":"pointer",border:"none"}}>
+                    {status==="generating"?"⏳ Generating...":"⚡ Generate & Merge"}
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {!apiKey&&(
